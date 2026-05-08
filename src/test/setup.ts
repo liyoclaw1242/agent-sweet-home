@@ -86,6 +86,13 @@ beforeEach(() => {
       case "pty_resize":
       case "pty_kill":
         return null;
+      case "one_shot_list":
+      case "one_shot_log":
+        return [];
+      case "one_shot_get":
+        return null;
+      case "one_shot_kill":
+        return null;
       default:
         return undefined;
     }

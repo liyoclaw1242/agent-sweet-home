@@ -5,6 +5,7 @@ import Tabs, { type RepoCounts, type TabKey } from "./components/Tabs";
 import SettingsDialog from "./components/SettingsDialog";
 import HomeView from "./components/HomeView";
 import PersistentView from "./components/PersistentView";
+import OneShotView from "./components/OneShotView";
 import "./App.css";
 
 const ZERO_COUNTS: RepoCounts = { persistent: 0, oneShot: 0, cron: 0 };
@@ -73,6 +74,7 @@ function App() {
             repo={selectedRepo}
             tab={activeTab}
             onPersistentCount={(n) => setCount(selectedRepo.id, "persistent", n)}
+            onOneShotCount={(n) => setCount(selectedRepo.id, "oneShot", n)}
           />
         ) : (
           <p>Select a repository from the sidebar to begin.</p>
@@ -91,16 +93,21 @@ function RepoView({
   repo,
   tab,
   onPersistentCount,
+  onOneShotCount,
 }: {
   repo: Repo;
   tab: TabKey;
   onPersistentCount: (n: number) => void;
+  onOneShotCount: (n: number) => void;
 }) {
   if (tab === "home") {
     return <HomeView repo={repo} />;
   }
   if (tab === "persistent") {
     return <PersistentView repo={repo} onCountChange={onPersistentCount} />;
+  }
+  if (tab === "one-shot") {
+    return <OneShotView repo={repo} onCountChange={onOneShotCount} />;
   }
   return (
     <div>

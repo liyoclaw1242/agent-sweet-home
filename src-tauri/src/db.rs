@@ -47,7 +47,33 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             draft INTEGER NOT NULL,
             synced_at TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_prs_repo ON prs(repo_full_name);",
+        CREATE INDEX IF NOT EXISTS idx_prs_repo ON prs(repo_full_name);
+
+        CREATE TABLE IF NOT EXISTS one_shot_runs (
+            id              TEXT PRIMARY KEY,
+            repo_id         INTEGER NOT NULL,
+            repo_name       TEXT NOT NULL,
+            cwd             TEXT NOT NULL,
+            argv_json       TEXT NOT NULL,
+            prompt          TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            started_at      INTEGER NOT NULL,
+            ended_at        INTEGER,
+            exit_code       INTEGER,
+            total_cost_usd  REAL,
+            output_format   TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_one_shot_runs_repo ON one_shot_runs(repo_id);
+        CREATE INDEX IF NOT EXISTS idx_one_shot_runs_status ON one_shot_runs(status);
+
+        CREATE TABLE IF NOT EXISTS one_shot_log_lines (
+            run_id   TEXT NOT NULL REFERENCES one_shot_runs(id) ON DELETE CASCADE,
+            seq      INTEGER NOT NULL,
+            ts       INTEGER NOT NULL,
+            stream   TEXT NOT NULL,
+            text     TEXT NOT NULL,
+            PRIMARY KEY (run_id, seq)
+        );",
     )
 }
 
@@ -85,5 +111,7 @@ mod tests {
         assert!(names.contains(&"repos".to_string()));
         assert!(names.contains(&"issues".to_string()));
         assert!(names.contains(&"prs".to_string()));
+        assert!(names.contains(&"one_shot_runs".to_string()));
+        assert!(names.contains(&"one_shot_log_lines".to_string()));
     }
 }

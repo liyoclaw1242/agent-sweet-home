@@ -3,6 +3,7 @@ mod db;
 mod github;
 mod http_server;
 mod local_repo;
+mod one_shot;
 mod settings;
 mod terminal;
 
@@ -25,6 +26,9 @@ pub fn run() {
             let registry = terminal::Registry::new();
             app.manage(registry.clone());
 
+            let one_shot_state = one_shot::OneShotState::new();
+            app.manage(one_shot_state.clone());
+
             // Spawn a localhost-only HTTP API for external CLIs / agents to query
             // the cached repo list and details. The auth token + port are written
             // to <app_data_dir>/server.json (0600 on unix).
@@ -32,6 +36,8 @@ pub fn run() {
             let server_ctx = http_server::ServerCtx {
                 db: db.clone(),
                 registry: registry.clone(),
+                one_shot: one_shot_state,
+                app_handle: Some(app.handle().clone()),
                 token,
             };
             let server_app_dir = app_dir.clone();
@@ -58,6 +64,11 @@ pub fn run() {
             terminal::pty_kill,
             terminal::pty_list,
             terminal::pty_get,
+            one_shot::one_shot_start,
+            one_shot::one_shot_list,
+            one_shot::one_shot_get,
+            one_shot::one_shot_log,
+            one_shot::one_shot_kill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,6 +2,10 @@ use crate::cache;
 use crate::db::Db;
 use crate::github::{Issue, PullRequest, Repo};
 use crate::local_repo::{inspect_at, LocalRepoInspection};
+use crate::one_shot::{
+    self, get_run_inner, list_log_lines_inner, list_runs_inner, LogLine, OneShotState, RunArgs,
+    RunInfo,
+};
 use crate::settings::get_settings_inner;
 use crate::terminal::{Registry, SessionInfo};
 use axum::{
@@ -13,11 +17,17 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::Path as StdPath;
+use tauri::AppHandle;
 
 #[derive(Clone)]
 pub struct ServerCtx {
     pub db: Db,
     pub registry: Registry,
+    pub one_shot: OneShotState,
+    /// `None` when the server is constructed for tests where no Tauri runtime
+    /// exists. `POST /one-shot` returns 503 in that case; read-only routes
+    /// keep working against the shared SQLite Db.
+    pub app_handle: Option<AppHandle>,
     pub token: String,
 }
 
@@ -36,6 +46,9 @@ pub fn router(ctx: ServerCtx) -> Router {
         .route("/repos", get(list_repos))
         .route("/repos/{name}", get(get_repo_detail))
         .route("/sessions", get(list_sessions))
+        .route("/one-shot", get(list_one_shot).post(start_one_shot))
+        .route("/one-shot/{id}", get(get_one_shot).delete(delete_one_shot))
+        .route("/one-shot/{id}/log", get(get_one_shot_log))
         .with_state(ctx)
 }
 
@@ -152,6 +165,133 @@ async fn list_sessions(
     Ok(Json(sessions))
 }
 
+#[derive(Deserialize)]
+struct OneShotListQuery {
+    repo: Option<String>,
+    #[serde(rename = "repoId")]
+    repo_id: Option<i64>,
+    status: Option<String>,
+}
+
+async fn list_one_shot(
+    State(ctx): State<ServerCtx>,
+    Query(q): Query<OneShotListQuery>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<RunInfo>>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let conn = ctx
+        .db
+        .0
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut runs = list_runs_inner(&conn, q.repo_id, q.status.as_deref())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(name) = q.repo {
+        runs.retain(|r| r.repo_name == name);
+    }
+    Ok(Json(runs))
+}
+
+async fn start_one_shot(
+    State(ctx): State<ServerCtx>,
+    headers: HeaderMap,
+    Json(args): Json<RunArgs>,
+) -> Result<Json<RunInfo>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let app = ctx.app_handle.clone().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    one_shot::start_run(&app, &ctx.db, &ctx.one_shot, args)
+        .map(Json)
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn get_one_shot(
+    State(ctx): State<ServerCtx>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<RunInfo>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let conn = ctx
+        .db
+        .0
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let run = get_run_inner(&conn, &id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(run))
+}
+
+#[derive(Deserialize, Default)]
+struct LogQuery {
+    #[serde(default = "default_since")]
+    since: i64,
+    #[serde(default = "default_limit")]
+    limit: i64,
+}
+
+fn default_since() -> i64 {
+    -1
+}
+
+fn default_limit() -> i64 {
+    1000
+}
+
+async fn get_one_shot_log(
+    State(ctx): State<ServerCtx>,
+    Path(id): Path<String>,
+    Query(q): Query<LogQuery>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<LogLine>>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let conn = ctx
+        .db
+        .0
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let lines = list_log_lines_inner(&conn, &id, q.since, q.limit)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(lines))
+}
+
+async fn delete_one_shot(
+    State(ctx): State<ServerCtx>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, StatusCode> {
+    auth(&ctx, &headers)?;
+    // Same semantics as the Tauri command: kill if running, otherwise delete.
+    if ctx.one_shot.is_running(&id) {
+        if let Some(child_arc) = ctx.one_shot.take_child(&id) {
+            if let Ok(mut g) = child_arc.lock() {
+                let _ = g.kill();
+            }
+        }
+        return Ok(StatusCode::ACCEPTED);
+    }
+    let conn = ctx
+        .db
+        .0
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    conn.execute(
+        "DELETE FROM one_shot_log_lines WHERE run_id = ?1",
+        rusqlite::params![&id],
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let n = conn
+        .execute(
+            "DELETE FROM one_shot_runs WHERE id = ?1",
+            rusqlite::params![&id],
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if n == 0 {
+        Err(StatusCode::NOT_FOUND)
+    } else {
+        Ok(StatusCode::NO_CONTENT)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +339,8 @@ mod tests {
         ServerCtx {
             db: Db::from_connection(conn),
             registry: crate::terminal::Registry::new(),
+            one_shot: OneShotState::new(),
+            app_handle: None,
             token: TOKEN.into(),
         }
     }
@@ -338,5 +480,165 @@ mod tests {
         let body = to_bytes(ok.into_body(), 1024 * 64).await.unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v.as_array().unwrap().len(), 0);
+    }
+
+    fn seed_one_shot_run(ctx: &ServerCtx, id: &str, repo_id: i64, status: &str) {
+        let conn = ctx.db.0.lock().unwrap();
+        conn.execute(
+            "INSERT INTO one_shot_runs
+             (id, repo_id, repo_name, cwd, argv_json, prompt, status, started_at, output_format)
+             VALUES (?1, ?2, 'alpha', '/tmp', '[\"claude\"]', 'p', ?3, 100, 'stream-json')",
+            rusqlite::params![id, repo_id, status],
+        )
+        .unwrap();
+    }
+
+    fn seed_one_shot_log(ctx: &ServerCtx, run_id: &str, seq: i64, text: &str) {
+        let conn = ctx.db.0.lock().unwrap();
+        conn.execute(
+            "INSERT INTO one_shot_log_lines (run_id, seq, ts, stream, text)
+             VALUES (?1, ?2, 1, 'stdout', ?3)",
+            rusqlite::params![run_id, seq, text],
+        )
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_one_shot_returns_runs_with_filters() {
+        let ctx = ctx_with_repo();
+        seed_one_shot_run(&ctx, "alpha-1-aa", 1, "running");
+        seed_one_shot_run(&ctx, "alpha-2-bb", 1, "completed");
+        seed_one_shot_run(&ctx, "beta-3-cc", 2, "running");
+        let app = router(ctx);
+
+        let all = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/one-shot")
+                    .header(AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = to_bytes(all.into_body(), 1024 * 64).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 3);
+
+        let by_status = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/one-shot?status=running&repoId=1")
+                    .header(AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = to_bytes(by_status.into_body(), 1024 * 64).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 1);
+        assert_eq!(v[0]["id"], "alpha-1-aa");
+    }
+
+    #[tokio::test]
+    async fn get_one_shot_returns_404_for_unknown_id() {
+        let app = router(ctx_with_repo());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/one-shot/missing")
+                    .header(AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_one_shot_log_returns_lines_filtered_by_since() {
+        let ctx = ctx_with_repo();
+        seed_one_shot_run(&ctx, "alpha-9-zz", 1, "completed");
+        seed_one_shot_log(&ctx, "alpha-9-zz", 0, "first");
+        seed_one_shot_log(&ctx, "alpha-9-zz", 1, "second");
+        seed_one_shot_log(&ctx, "alpha-9-zz", 2, "third");
+        let app = router(ctx);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/one-shot/alpha-9-zz/log?since=0")
+                    .header(AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = to_bytes(resp.into_body(), 1024 * 64).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 2);
+        assert_eq!(v[0]["text"], "second");
+        assert_eq!(v[1]["text"], "third");
+    }
+
+    #[tokio::test]
+    async fn delete_one_shot_removes_finished_run_and_logs() {
+        let ctx = ctx_with_repo();
+        seed_one_shot_run(&ctx, "alpha-9-zz", 1, "completed");
+        seed_one_shot_log(&ctx, "alpha-9-zz", 0, "x");
+        let db_for_check = ctx.db.clone();
+        let app = router(ctx);
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/one-shot/alpha-9-zz")
+                    .header(AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let conn = db_for_check.0.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM one_shot_runs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        let lines: i64 = conn
+            .query_row("SELECT COUNT(*) FROM one_shot_log_lines", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(lines, 0);
+    }
+
+    #[tokio::test]
+    async fn post_one_shot_returns_503_when_no_app_handle() {
+        let app = router(ctx_with_repo());
+        let body = serde_json::json!({
+            "repoId": 1,
+            "repoName": "alpha",
+            "cwd": "/tmp",
+            "prompt": "hi"
+        });
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/one-shot")
+                    .header(AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }
