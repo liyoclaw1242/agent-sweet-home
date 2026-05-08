@@ -16,6 +16,7 @@ pub mod dispatch;
 pub mod entry;
 pub mod expr;
 pub mod result;
+pub mod spawn;
 pub mod spec;
 
 use std::path::Path;

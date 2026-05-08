@@ -62,18 +62,45 @@ pub fn render_template(template: &str, vars: &HashMap<&str, &str>) -> Result<Str
 }
 
 /// Run a rendered command via `sh -c`, capture stdout. Used by entry/
-/// `*_source` resolvers. Phase 2 fills the body — until then the runtime
-/// has no consumer that calls this.
-pub fn run_capture(_rendered: &str) -> Result<Vec<u8>, CommandError> {
-    todo!("Phase 2: std::process::Command::new(\"sh\").arg(\"-c\").arg(rendered).output()")
+/// `*_source` resolvers and by step actions that shell out (e.g. `gh`).
+pub fn run_capture(rendered: &str) -> Result<Vec<u8>, CommandError> {
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(rendered)
+        .output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        return Err(CommandError::NonZeroExit {
+            code: output.status.code(),
+            stderr,
+        });
+    }
+    Ok(output.stdout)
 }
 
 /// Run + parse stdout as JSON into the requested type. Convenience wrapper
 /// over `run_capture` for the common `repo_source` / `issue_source` case.
 pub fn run_capture_json<T: serde::de::DeserializeOwned>(
-    _rendered: &str,
+    rendered: &str,
 ) -> Result<T, CommandError> {
-    todo!("Phase 2: run_capture(rendered).and_then(|bytes| serde_json::from_slice(&bytes))")
+    let bytes = run_capture(rendered)?;
+    let parsed = serde_json::from_slice(&bytes)?;
+    Ok(parsed)
+}
+
+/// Run a rendered command, capture exit code + stdout + stderr. Used by
+/// step actions that need to inspect non-zero exits (e.g. `gh issue view`
+/// returning 1 when the issue doesn't exist).
+pub fn run_capture_full(rendered: &str) -> Result<(i32, Vec<u8>, Vec<u8>), CommandError> {
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(rendered)
+        .output()?;
+    Ok((
+        output.status.code().unwrap_or(-1),
+        output.stdout,
+        output.stderr,
+    ))
 }
 
 #[cfg(test)]
@@ -128,5 +155,38 @@ mod tests {
         let out = render_template(template, &vars(&[("repo", "octo/cat")])).unwrap();
         assert!(out.contains("--repo octo/cat"));
         assert!(out.contains("--limit 100"));
+    }
+
+    #[test]
+    fn run_capture_returns_stdout_for_success() {
+        let out = run_capture("printf hello").unwrap();
+        assert_eq!(out, b"hello");
+    }
+
+    #[test]
+    fn run_capture_errors_on_non_zero_exit() {
+        let err = run_capture("printf err >&2; exit 7").unwrap_err();
+        match err {
+            CommandError::NonZeroExit { code, stderr } => {
+                assert_eq!(code, Some(7));
+                assert!(stderr.contains("err"));
+            }
+            other => panic!("expected NonZeroExit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn run_capture_json_decodes_array() {
+        let v: Vec<i64> = run_capture_json("printf '[1,2,3]'").unwrap();
+        assert_eq!(v, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn run_capture_full_returns_exit_and_streams() {
+        let (code, out, err) =
+            run_capture_full("printf out; printf err >&2; exit 3").unwrap();
+        assert_eq!(code, 3);
+        assert_eq!(out, b"out");
+        assert_eq!(err, b"err");
     }
 }
