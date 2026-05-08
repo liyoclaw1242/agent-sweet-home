@@ -132,8 +132,9 @@ impl WorkflowRuntime {
         engine: ExprEngine,
         mut rt: RuntimeContext,
     ) -> Result<DispatchOutcome, RuntimeError> {
-        // 2. Pre-spawn evaluator — may abort or reroute.
-        let outcome = apply_pre_spawn(&self.wf.pre_spawn, &mut ctx, &engine, &mut rt)?;
+        // 2. Pre-spawn evaluator — may abort or reroute. Pass the dispatched
+        //    role so `role:` and `repo_path_exists:` atoms can resolve.
+        let outcome = apply_pre_spawn(&self.wf.pre_spawn, &role, &mut ctx, &engine, &mut rt)?;
         let (final_role, final_mode) = match outcome {
             PreSpawnOutcome::Abort => return Ok(DispatchOutcome::Aborted { role }),
             PreSpawnOutcome::Reroute { role: r, mode: m } => (r, m),
@@ -215,6 +216,21 @@ impl WorkflowRuntime {
         // 5. Translate structured output into GitHub side effects via
         //    on_result handlers; fall back to on_no_structured_output when
         //    the agent didn't emit parseable JSON.
+        // Bind `spawn` so degrade / on_result templates can reference cost,
+        // role, and status without erroring on undefined values.
+        ctx.bindings.insert(
+            "spawn".into(),
+            serde_json::json!({
+                "role": final_role,
+                "status": agent.status,
+                "exit_code": agent.exit_code,
+                "cost_usd": agent.total_cost_usd.unwrap_or(0.0),
+                "duration_ms": 0,
+                "end_reason": agent.status,
+                "last_assistant_text": "",
+                "stderr": "",
+            }),
+        );
         let on_result_outcome = match agent.structured_output.as_ref().and_then(extract_kind) {
             Some(k) => {
                 let result = apply_on_result(

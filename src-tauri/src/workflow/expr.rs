@@ -140,6 +140,11 @@ impl Default for ExprEngine {
 impl ExprEngine {
     pub fn new() -> Self {
         let mut env = Environment::new();
+        // Chainable undefined: `{{ spawn.role }}` against a missing `spawn`
+        // renders as empty instead of erroring. The workflow YAML leans on
+        // `| default(...)` filters everywhere, which need a chainable
+        // undefined to short-circuit cleanly.
+        env.set_undefined_behavior(minijinja::UndefinedBehavior::Chainable);
         env.add_filter("formatdep", filter_formatdep);
         env.add_filter("lookup_iter_result_number", filter_lookup_iter_result_number);
         env.add_filter("asint", filter_asint);

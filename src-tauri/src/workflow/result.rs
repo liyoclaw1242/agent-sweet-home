@@ -173,14 +173,28 @@ pub enum PreSpawnOutcome {
 
 pub fn apply_pre_spawn(
     hooks: &[crate::workflow::spec::PreSpawnHook],
+    role: &str,
     ctx: &mut ExprContext,
     engine: &ExprEngine,
     rt: &mut RuntimeContext,
 ) -> Result<PreSpawnOutcome, ResultError> {
+    // Snapshot the repo_path here so the env's immutable borrow doesn't
+    // overlap the &mut rt borrow taken by `execute_pre_spawn_steps`.
+    let repo_path_snapshot = rt.repo_path.clone();
     for hook in hooks {
-        if !crate::workflow::dispatch::eval_predicate(&hook.condition, ctx, engine)
-            .map_err(|e| ResultError::Expr(map_dispatch_error_to_expr(e)))?
-        {
+        let env = crate::workflow::dispatch::PreSpawnEnv {
+            role,
+            repo_path: repo_path_snapshot.as_path(),
+        };
+        let matched = crate::workflow::dispatch::eval_predicate_with_env(
+            &hook.condition,
+            ctx,
+            engine,
+            &env,
+        )
+        .map_err(|e| ResultError::Expr(map_dispatch_error_to_expr(e)))?;
+        drop(env);
+        if !matched {
             continue;
         }
         let outcome = execute_pre_spawn_steps(&hook.steps, ctx, engine, rt)?;

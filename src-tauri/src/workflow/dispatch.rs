@@ -43,10 +43,38 @@ pub fn eval_predicate(
     ctx: &ExprContext,
     engine: &ExprEngine,
 ) -> Result<bool, DispatchError> {
+    eval_predicate_inner(pred, ctx, engine, None)
+}
+
+/// Pre-spawn variant — resolves `repo_path_exists`, `path_exists`, and `role`
+/// atoms that the plain dispatcher can't evaluate. Falls through to the
+/// regular evaluator for everything else.
+pub fn eval_predicate_with_env(
+    pred: &Predicate,
+    ctx: &ExprContext,
+    engine: &ExprEngine,
+    env: &PreSpawnEnv<'_>,
+) -> Result<bool, DispatchError> {
+    eval_predicate_inner(pred, ctx, engine, Some(env))
+}
+
+/// Coordinates the pre-spawn evaluator needs to resolve atoms that are
+/// meaningless during dispatch (no role / repo_path resolved yet).
+pub struct PreSpawnEnv<'a> {
+    pub role: &'a str,
+    pub repo_path: &'a std::path::Path,
+}
+
+fn eval_predicate_inner(
+    pred: &Predicate,
+    ctx: &ExprContext,
+    engine: &ExprEngine,
+    env: Option<&PreSpawnEnv<'_>>,
+) -> Result<bool, DispatchError> {
     match pred {
         Predicate::All { all } => {
             for p in all {
-                if !eval_predicate(p, ctx, engine)? {
+                if !eval_predicate_inner(p, ctx, engine, env)? {
                     return Ok(false);
                 }
             }
@@ -54,14 +82,14 @@ pub fn eval_predicate(
         }
         Predicate::Any { any } => {
             for p in any {
-                if eval_predicate(p, ctx, engine)? {
+                if eval_predicate_inner(p, ctx, engine, env)? {
                     return Ok(true);
                 }
             }
             Ok(false)
         }
-        Predicate::Not { not } => Ok(!eval_predicate(not, ctx, engine)?),
-        Predicate::Atom(atom) => Ok(eval_atom(atom, ctx, engine)?),
+        Predicate::Not { not } => Ok(!eval_predicate_inner(not, ctx, engine, env)?),
+        Predicate::Atom(atom) => Ok(eval_atom(atom, ctx, engine, env)?),
     }
 }
 
@@ -69,6 +97,7 @@ fn eval_atom(
     atom: &AtomPredicate,
     ctx: &ExprContext,
     engine: &ExprEngine,
+    env: Option<&PreSpawnEnv<'_>>,
 ) -> Result<bool, DispatchError> {
     Ok(match atom {
         AtomPredicate::HasLabel(name) => ExprEngine::has_label(ctx, name),
@@ -77,15 +106,22 @@ fn eval_atom(
         AtomPredicate::IssueState(state) => ExprEngine::issue_state_is(ctx, state),
         AtomPredicate::HasMarker(key) => ExprEngine::has_marker(ctx, key),
         AtomPredicate::Expr(expr) => engine.eval_bool(expr, ctx)?,
-        // Pre-spawn-only atoms: if a workflow author puts these in a
-        // dispatch rule the dispatcher has no way to evaluate them
-        // (no resolved role, no repo path). Treat as `false` so the
-        // rule is skipped rather than panicking — the YAML is wrong but
-        // the runtime stays live. Pre-spawn evaluator (Phase 2) handles
-        // these properly with a richer context.
-        AtomPredicate::RepoPathExists(_)
-        | AtomPredicate::PathExists(_)
-        | AtomPredicate::Role(_) => false,
+        // Pre-spawn-only atoms: resolve via PreSpawnEnv when present (i.e.
+        // when called from `apply_pre_spawn`); fall back to `false` when
+        // called from the plain dispatcher so a stray atom in a dispatch
+        // rule skips the rule instead of panicking.
+        AtomPredicate::RepoPathExists(_) => env
+            .map(|e| e.repo_path.exists())
+            .unwrap_or(false),
+        AtomPredicate::PathExists(template) => env
+            .map(|e| {
+                std::path::Path::new(
+                    &template.replace("{repo_path}", &e.repo_path.to_string_lossy()),
+                )
+                .exists()
+            })
+            .unwrap_or(false),
+        AtomPredicate::Role(r) => env.map(|e| e.role == r).unwrap_or(false),
     })
 }
 

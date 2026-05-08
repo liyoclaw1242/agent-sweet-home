@@ -65,7 +65,7 @@ pub fn load(path: &Path) -> Result<spec::Workflow, LoadError> {
 pub fn start(
     runtime: Arc<runtime::WorkflowRuntime>,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
-) -> Vec<tokio::task::JoinHandle<()>> {
+) -> Vec<tauri::async_runtime::JoinHandle<()>> {
     let mut handles = Vec::new();
     let modes = runtime.wf.entry.modes.clone();
     for mode in modes {
@@ -77,7 +77,7 @@ pub fn start(
                 };
                 let runtime_clone = runtime.clone();
                 let shutdown_clone = shutdown_rx.clone();
-                let handle = tokio::spawn(async move {
+                let handle = tauri::async_runtime::spawn(async move {
                     let cfg = runtime_clone
                         .wf
                         .entry
