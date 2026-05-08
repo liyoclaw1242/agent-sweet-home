@@ -1,0 +1,141 @@
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: #fff;
+  color: #213547;
+  border-radius: 8px;
+  width: min(440px, 90vw);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eee;
+}
+.dialog-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.dialog-close {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+.dialog-close:hover {
+  background: #f0f0f0;
+}
+
+.dialog-form {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.dialog-field input {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+  color: inherit;
+}
+.dialog-field input:focus {
+  outline: 2px solid #6c8cff;
+  outline-offset: -1px;
+  border-color: transparent;
+}
+.dialog-field small {
+  font-weight: 400;
+  color: #777;
+}
+.dialog-field code {
+  background: #f3f3f3;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.dialog-error {
+  color: #c0392b;
+  margin: 0;
+  font-size: 13px;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.dialog-actions button {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+  font-size: 14px;
+  color: inherit;
+  font-family: inherit;
+}
+.dialog-actions button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.dialog-primary {
+  background: #2563eb !important;
+  color: #fff !important;
+  border-color: #2563eb !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  .dialog {
+    background: #232323;
+    color: #f0f0f0;
+  }
+  .dialog-header {
+    border-color: #333;
+  }
+  .dialog-close:hover {
+    background: #2a2a2a;
+  }
+  .dialog-field input {
+    background: #1a1a1a;
+    color: #f0f0f0;
+    border-color: #444;
+  }
+  .dialog-field small {
+    color: #aaa;
+  }
+  .dialog-field code {
+    background: #2a2a2a;
+    color: #ddd;
+  }
+  .dialog-actions button {
+    background: #2a2a2a;
+    border-color: #444;
+    color: #f0f0f0;
+  }
+}

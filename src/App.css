@@ -1,0 +1,70 @@
+:root {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #213547;
+  background-color: #ffffff;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+}
+
+.layout {
+  display: grid;
+  grid-template-rows: 56px 40px 1fr;
+  grid-template-columns: 280px 1fr;
+  grid-template-areas:
+    "header  header"
+    "sidebar tabs"
+    "sidebar main";
+  height: 100vh;
+}
+
+.app-header { grid-area: header; }
+.sidebar    { grid-area: sidebar; }
+.tabs       { grid-area: tabs; }
+.main {
+  grid-area: main;
+  padding: 24px;
+  overflow: auto;
+}
+
+.main h2 {
+  margin-top: 0;
+  font-size: 20px;
+}
+.repo-meta {
+  color: #888;
+  font-size: 13px;
+  margin-top: -8px;
+}
+.placeholder {
+  color: #888;
+  font-style: italic;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #f6f6f6;
+    background-color: #1f1f1f;
+  }
+  .repo-meta, .placeholder { color: #999; }
+}

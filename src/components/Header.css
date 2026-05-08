@@ -1,0 +1,41 @@
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid #e5e5e5;
+  background: #fafafa;
+}
+
+.app-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.settings-button {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: inherit;
+}
+.settings-button:hover {
+  background: #f0f0f0;
+}
+.settings-button:focus-visible {
+  outline: 2px solid #6c8cff;
+  outline-offset: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .app-header {
+    background: #232323;
+    border-color: #333;
+  }
+  .settings-button:hover {
+    background: #333;
+  }
+}

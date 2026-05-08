@@ -1,0 +1,32 @@
+[package]
+name = "agent-sweet-home"
+version = "0.1.0"
+description = "Agent Sweet Home — Tauri + React desktop template"
+authors = ["liyoclaw"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix avoids a Windows lib/bin name collision (rust-lang/cargo#8519).
+name = "agent_sweet_home_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+axum = "0.8"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["net", "rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
