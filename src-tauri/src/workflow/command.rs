@@ -22,43 +22,69 @@ pub enum CommandError {
 }
 
 /// Substitute `{var}` placeholders in `template` with values from `vars`.
-/// Unknown placeholders return `MissingVar`; literal `{{` / `}}` are not
-/// special-cased here — entry-level commands don't need brace escaping.
+/// Unknown placeholders return `MissingVar`. `{{` collapses to a literal `{`
+/// and `}}` to `}` — needed when a command emits JSON or shell parameter
+/// expansions that include real braces.
 ///
 /// Whitespace inside the placeholder is allowed (`{ repo }` matches
 /// `{repo}`) so multi-line YAML scalars survive a `serde_yaml` reflow.
 pub fn render_template(template: &str, vars: &HashMap<&str, &str>) -> Result<String, CommandError> {
     let mut out = String::with_capacity(template.len());
-    let mut chars = template.char_indices().peekable();
+    let bytes = template.as_bytes();
+    let mut i = 0;
 
-    while let Some((idx, ch)) = chars.next() {
-        if ch != '{' {
-            out.push(ch);
+    while i < bytes.len() {
+        let ch = bytes[i];
+        // `{{` → literal `{`
+        if ch == b'{' && bytes.get(i + 1) == Some(&b'{') {
+            out.push('{');
+            i += 2;
+            continue;
+        }
+        // `}}` → literal `}`
+        if ch == b'}' && bytes.get(i + 1) == Some(&b'}') {
+            out.push('}');
+            i += 2;
+            continue;
+        }
+        if ch != b'{' {
+            // Walk to the next char boundary safely (multi-byte UTF-8).
+            let next = next_char_boundary(template, i);
+            out.push_str(&template[i..next]);
+            i = next;
             continue;
         }
         // Find the matching '}'. If none, treat the '{' as literal.
-        let rest = &template[idx + ch.len_utf8()..];
+        let rest = &template[i + 1..];
         let Some(end_rel) = rest.find('}') else {
-            out.push(ch);
+            out.push('{');
+            i += 1;
             continue;
         };
         let key = rest[..end_rel].trim();
         // Skip empty `{}` — pass through literally.
         if key.is_empty() {
-            out.push(ch);
+            out.push('{');
+            i += 1;
             continue;
         }
         let value = vars
             .get(key)
             .ok_or_else(|| CommandError::MissingVar(key.to_string()))?;
         out.push_str(value);
-        // Advance the iterator past the closing '}' (idx + '{' + key + '}').
-        let consumed = ch.len_utf8() + end_rel + '}'.len_utf8();
-        for _ in 0..(consumed - ch.len_utf8()) {
-            chars.next();
-        }
+        // Advance past `{` + key + `}`.
+        i = i + 1 + end_rel + 1;
     }
     Ok(out)
+}
+
+fn next_char_boundary(s: &str, idx: usize) -> usize {
+    let bytes = s.as_bytes();
+    let mut j = idx + 1;
+    while j < bytes.len() && !s.is_char_boundary(j) {
+        j += 1;
+    }
+    j
 }
 
 /// Run a rendered command via `sh -c`, capture stdout. Used by entry/
@@ -147,6 +173,14 @@ mod tests {
             CommandError::MissingVar(k) => assert_eq!(k, "missing"),
             other => panic!("expected MissingVar, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn render_doubled_braces_collapse_to_literals() {
+        // `{{` → `{` and `}}` → `}` so JSON-emitting commands survive.
+        let template = r#"echo '[{{"repo":"{repo}"}}]'"#;
+        let out = render_template(template, &vars(&[("repo", "o/r")])).unwrap();
+        assert_eq!(out, r#"echo '[{"repo":"o/r"}]'"#);
     }
 
     #[test]

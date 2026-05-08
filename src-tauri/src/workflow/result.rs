@@ -520,6 +520,8 @@ fn execute_action_inner(
         ActionInput::TransitionStatus { from, to } => {
             action_transition_status(from.as_deref(), to, rt, ctx, engine)
         }
+        ActionInput::CloseIssue(true) => action_close_issue(rt),
+        ActionInput::CloseIssue(false) => Ok(()),
         ActionInput::SetBodyMarker(map) => action_set_body_marker(map, rt, ctx, engine),
         ActionInput::PushBranchAndPr {
             branch,
@@ -766,20 +768,52 @@ fn action_transition_status(
     ctx: &ExprContext,
     engine: &ExprEngine,
 ) -> Result<(), ResultError> {
+    // Two-phase + rollback. The single `gh issue edit --add --remove` form
+    // is non-atomic — if the add fails (label not defined on the repo) the
+    // remove may already have landed, leaving the issue with no status.
+    // Adding first means: failure of the add aborts cleanly, the remove
+    // never runs, the issue is unchanged. If the remove fails afterward,
+    // we roll back the add so the issue isn't doubly-labelled.
     let to_rendered = engine.render(to, ctx)?;
-    let mut cmd = format!(
-        "gh issue edit {num} --repo {repo} --add-label {add}",
+    let to_label = format!("status:{to_rendered}");
+    let add_cmd = format!(
+        "gh issue edit {num} --repo {repo} --add-label {label}",
         num = rt.issue_number,
         repo = shell_quote(&rt.repo_full_name),
-        add = shell_quote(&format!("status:{to_rendered}")),
+        label = shell_quote(&to_label),
     );
+    run_capture(&add_cmd)?;
+
     if let Some(from_name) = from {
         let from_rendered = engine.render(from_name, ctx)?;
-        cmd.push_str(&format!(
-            " --remove-label {}",
-            shell_quote(&format!("status:{from_rendered}"))
-        ));
+        let from_label = format!("status:{from_rendered}");
+        let remove_cmd = format!(
+            "gh issue edit {num} --repo {repo} --remove-label {label}",
+            num = rt.issue_number,
+            repo = shell_quote(&rt.repo_full_name),
+            label = shell_quote(&from_label),
+        );
+        if let Err(remove_err) = run_capture(&remove_cmd) {
+            // Roll back the add we just made so the issue isn't doubly-tagged.
+            let undo_cmd = format!(
+                "gh issue edit {num} --repo {repo} --remove-label {label}",
+                num = rt.issue_number,
+                repo = shell_quote(&rt.repo_full_name),
+                label = shell_quote(&to_label),
+            );
+            let _ = run_capture(&undo_cmd);
+            return Err(remove_err.into());
+        }
     }
+    Ok(())
+}
+
+fn action_close_issue(rt: &RuntimeContext) -> Result<(), ResultError> {
+    let cmd = format!(
+        "gh issue close {num} --repo {repo}",
+        num = rt.issue_number,
+        repo = shell_quote(&rt.repo_full_name),
+    );
     run_capture(&cmd)?;
     Ok(())
 }

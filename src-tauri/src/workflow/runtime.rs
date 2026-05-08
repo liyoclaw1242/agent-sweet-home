@@ -225,9 +225,9 @@ impl WorkflowRuntime {
                 "status": agent.status,
                 "exit_code": agent.exit_code,
                 "cost_usd": agent.total_cost_usd.unwrap_or(0.0),
-                "duration_ms": 0,
+                "duration_ms": agent.duration_ms.unwrap_or(0),
                 "end_reason": agent.status,
-                "last_assistant_text": "",
+                "last_assistant_text": agent.last_assistant_text.clone().unwrap_or_default(),
                 "stderr": "",
             }),
         );

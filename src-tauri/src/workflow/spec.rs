@@ -334,6 +334,10 @@ pub enum ActionInput {
         from: Option<String>,
         to: String,
     },
+    /// `close_issue: true` — closes the current issue. Used by terminal
+    /// roles (advisors emit advice + close, implementer review emits
+    /// verdict + close).
+    CloseIssue(bool),
     /// Multi-key map of `<!-- key: val -->` body markers to set in one shot.
     SetBodyMarker(HashMap<String, String>),
     PushBranchAndPr {

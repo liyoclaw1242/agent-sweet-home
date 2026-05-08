@@ -51,7 +51,15 @@ pub struct SpawnedAgent {
     /// line: we take `.result` (the agent's final assistant text) and try to
     /// parse it as JSON. Returns `None` on parse failure or missing result.
     pub structured_output: Option<serde_json::Value>,
+    /// Raw `.result` text from the final result event, regardless of whether
+    /// it parsed as JSON. Roles whose contract is "emit markdown" (advisors)
+    /// surface their advice here and degrade-side handlers echo it as a
+    /// comment.
+    pub last_assistant_text: Option<String>,
     pub total_cost_usd: Option<f64>,
+    /// Wallclock duration of the run in milliseconds, derived from the DB
+    /// row (ended_at − started_at). Surfaced for degrade templates.
+    pub duration_ms: Option<i64>,
 }
 
 /// Parameters captured per-spawn. Lifted out of the call signature so callers
@@ -184,14 +192,20 @@ pub async fn run_spawn(
         .map_err(SpawnError::DbPoll)?
     };
 
+    let last_assistant_text = extract_last_assistant_text(&log_lines);
     let structured_output = extract_structured_output(&log_lines);
+    let duration_ms = final_run
+        .ended_at
+        .map(|end| (end - final_run.started_at).saturating_mul(1000));
 
     Ok(SpawnedAgent {
         run_id: final_run.id,
         status: final_run.status,
         exit_code: final_run.exit_code.unwrap_or(-1),
         structured_output,
+        last_assistant_text,
         total_cost_usd: final_run.total_cost_usd,
+        duration_ms,
     })
 }
 
@@ -238,6 +252,28 @@ fn resolved_mode_overrides(
         }
     }
     (allowed, disallowed, model, budget)
+}
+
+/// Walk the captured log backwards for the final result event and return
+/// `.result` verbatim — regardless of whether it parses as JSON. Roles that
+/// emit markdown (advisors) carry their advice through this field.
+fn extract_last_assistant_text(log: &[LogLine]) -> Option<String> {
+    for line in log.iter().rev() {
+        if line.stream != "stdout" {
+            continue;
+        }
+        let parsed: serde_json::Value = match serde_json::from_str(&line.text) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if parsed.get("type").and_then(|v| v.as_str()) != Some("result") {
+            continue;
+        }
+        if let Some(s) = parsed.get("result").and_then(|v| v.as_str()) {
+            return Some(s.to_string());
+        }
+    }
+    None
 }
 
 /// Walk the captured log backwards looking for the last `result` event from
