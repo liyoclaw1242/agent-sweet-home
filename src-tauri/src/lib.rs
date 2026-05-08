@@ -43,7 +43,7 @@ pub fn run() {
             let server_ctx = http_server::ServerCtx {
                 db: db.clone(),
                 registry: registry.clone(),
-                one_shot: one_shot_state,
+                one_shot: one_shot_state.clone(),
                 app_handle: Some(app.handle().clone()),
                 token,
             };
@@ -67,7 +67,10 @@ pub fn run() {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| app_dir.join("workflow.yaml"));
 
-            if workflow_path.exists() {
+            let mut wf_loaded = false;
+            let mut wf_error: Option<String> = None;
+            let wf_exists = workflow_path.exists();
+            if wf_exists {
                 match workflow::load(&workflow_path) {
                     Ok(wf) => {
                         let runtime = Arc::new(workflow::WorkflowRuntime::new(
@@ -75,7 +78,7 @@ pub fn run() {
                             workflow::workflow_dir_of(&workflow_path),
                             app.handle().clone(),
                             db.clone(),
-                            one_shot::OneShotState::new(),
+                            one_shot_state.clone(),
                         ));
                         // Channel held in app state so a future Tauri
                         // command (`workflow_stop`) can flip it on demand.
@@ -83,9 +86,12 @@ pub fn run() {
                         app.manage(WorkflowShutdown(tx));
                         let _handles = workflow::start(runtime, rx);
                         eprintln!("workflow: loaded {}", workflow_path.display());
+                        wf_loaded = true;
                     }
                     Err(e) => {
-                        eprintln!("workflow: failed to load {}: {e}", workflow_path.display());
+                        let msg = e.to_string();
+                        eprintln!("workflow: failed to load {}: {msg}", workflow_path.display());
+                        wf_error = Some(msg);
                     }
                 }
             } else {
@@ -94,6 +100,12 @@ pub fn run() {
                     workflow_path.display()
                 );
             }
+            app.manage(workflow::WorkflowStatus {
+                path: workflow_path.display().to_string(),
+                exists: wf_exists,
+                loaded: wf_loaded,
+                error: wf_error,
+            });
 
             Ok(())
         })
@@ -115,6 +127,7 @@ pub fn run() {
             one_shot::one_shot_get,
             one_shot::one_shot_log,
             one_shot::one_shot_kill,
+            workflow::workflow_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

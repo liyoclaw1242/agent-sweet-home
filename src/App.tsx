@@ -6,6 +6,7 @@ import SettingsDialog from "./components/SettingsDialog";
 import HomeView from "./components/HomeView";
 import PersistentView from "./components/PersistentView";
 import OneShotView from "./components/OneShotView";
+import WorkflowView from "./components/WorkflowView";
 import "./App.css";
 
 const ZERO_COUNTS: RepoCounts = { persistent: 0, oneShot: 0, cron: 0, workflow: 0 };
@@ -109,6 +110,9 @@ function RepoView({
   }
   if (tab === "one-shot") {
     return <OneShotView repo={repo} onCountChange={onOneShotCount} />;
+  }
+  if (tab === "workflow") {
+    return <WorkflowView />;
   }
   return (
     <div>

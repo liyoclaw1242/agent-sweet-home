@@ -25,6 +25,51 @@ pub mod worktree;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use serde::Serialize;
+use tauri::State;
+
+/// Snapshot of how the runtime resolved + loaded the workflow YAML at startup.
+/// Stored as Tauri-managed state so the frontend can ask "what got applied?".
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowStatus {
+    pub path: String,
+    pub exists: bool,
+    pub loaded: bool,
+    pub error: Option<String>,
+}
+
+/// Response shape for `workflow_status` — same as `WorkflowStatus` plus the
+/// raw YAML text (so the UI can preview what's applied without re-resolving
+/// the path).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowStatusResponse {
+    pub path: String,
+    pub exists: bool,
+    pub loaded: bool,
+    pub error: Option<String>,
+    pub content: Option<String>,
+}
+
+#[tauri::command]
+pub fn workflow_status(
+    state: State<'_, WorkflowStatus>,
+) -> Result<WorkflowStatusResponse, String> {
+    let content = if state.exists {
+        std::fs::read_to_string(&state.path).ok()
+    } else {
+        None
+    };
+    Ok(WorkflowStatusResponse {
+        path: state.path.clone(),
+        exists: state.exists,
+        loaded: state.loaded,
+        error: state.error.clone(),
+        content,
+    })
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum LoadError {
     #[error("read {path}: {source}")]
