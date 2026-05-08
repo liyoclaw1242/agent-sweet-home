@@ -1,11 +1,12 @@
 import "./Tabs.css";
 
-export type TabKey = "home" | "persistent" | "one-shot" | "cron";
+export type TabKey = "home" | "persistent" | "one-shot" | "cron" | "workflow";
 
 export interface RepoCounts {
   persistent: number;
   oneShot: number;
   cron: number;
+  workflow: number;
 }
 
 interface Props {
@@ -26,6 +27,7 @@ const TABS: Spec[] = [
   { key: "persistent", label: "Persistent", count: (c) => c.persistent },
   { key: "one-shot", label: "One-Shot", count: (c) => c.oneShot },
   { key: "cron", label: "Cron", count: (c) => c.cron },
+  { key: "workflow", label: "Workflow", count: (c) => c.workflow },
 ];
 
 export default function Tabs({ active, counts, disabled, onChange }: Props) {

@@ -243,8 +243,21 @@ src-tauri/src/            Rust 後端
 ├── cache.rs              SQLite 快取讀寫
 ├── terminal.rs           PTY Registry + pty_create/write/resize/kill/list/get commands
 ├── one_shot.rs           One-Shot Runner + build_argv + start_run + one_shot_* commands
-└── http_server.rs        axum router + bearer token 認證 + /sessions + /one-shot/*
+├── http_server.rs        axum router + bearer token 認證 + /sessions + /one-shot/*
+└── workflow/             宣告式 workflow 引擎（YAML+Jinja2）— Phase 1.5：schema 完整、runtime 為 stub
+    ├── spec.rs           全部 serde 結構（Workflow / EntryConfig / actions / control flow）
+    ├── dispatch.rs       純函式 dispatch(IssueState, [DispatchRule]) -> Directive
+    ├── expr.rs           minijinja 包裝層（has_label / matches_label / 模板 render）
+    ├── result.rs         on_result + degrade + unblock_pass（Phase 2 todo!()）
+    ├── command.rs        {var} template render + spawn 子程序（spawn 部分 todo!()）
+    └── entry/            poll / webhook / manual 三種 issue 來源（皆 stub）
 ```
+
+## Workflow 引擎
+
+宣告式 YAML 引擎，把 `dispatcher.ts` + `orchestrator.ts` 的邏輯改用 YAML 表達。Phase 1.5 已完成 schema，可解析 agent-team v2 production workflow；runtime 為 stub。
+
+完整參考文件：[`WORKFLOW.md`](./WORKFLOW.md) — 為 AI agent 閱讀優化（schema 對照表、predicate atoms / actions / control flow 全表、gotchas、Phase 2 contract、test fixtures 索引）。
 
 ## 安全備註
 

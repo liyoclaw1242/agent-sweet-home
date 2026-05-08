@@ -109,15 +109,16 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders all four tabs disabled until a repo is selected", async () => {
+  it("renders all five tabs disabled until a repo is selected", async () => {
     render(<App />);
     const tabs = await screen.findAllByRole("tab");
-    expect(tabs).toHaveLength(4);
+    expect(tabs).toHaveLength(5);
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Home",
       "Persistent(0)",
       "One-Shot(0)",
       "Cron(0)",
+      "Workflow(0)",
     ]);
     for (const tab of tabs) {
       expect(tab).toBeDisabled();

@@ -8,13 +8,14 @@ import PersistentView from "./components/PersistentView";
 import OneShotView from "./components/OneShotView";
 import "./App.css";
 
-const ZERO_COUNTS: RepoCounts = { persistent: 0, oneShot: 0, cron: 0 };
+const ZERO_COUNTS: RepoCounts = { persistent: 0, oneShot: 0, cron: 0, workflow: 0 };
 
 const TAB_LABELS: Record<TabKey, string> = {
   home: "Home",
   persistent: "Persistent",
   "one-shot": "One-Shot",
   cron: "Cron",
+  workflow: "Workflow",
 };
 
 function App() {

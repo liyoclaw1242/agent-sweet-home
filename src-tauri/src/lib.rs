@@ -6,6 +6,7 @@ mod local_repo;
 mod one_shot;
 mod settings;
 mod terminal;
+pub mod workflow;
 
 use tauri::Manager;
 
