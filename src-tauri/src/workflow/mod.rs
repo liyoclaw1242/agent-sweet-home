@@ -20,6 +20,7 @@ pub mod result;
 pub mod runtime;
 pub mod spawn;
 pub mod spec;
+pub mod worktree;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

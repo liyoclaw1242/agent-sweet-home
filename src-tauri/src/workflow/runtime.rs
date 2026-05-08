@@ -8,7 +8,7 @@
 //! freely.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -25,6 +25,7 @@ use crate::workflow::result::{
 };
 use crate::workflow::spawn::{run_spawn, SpawnError, SpawnRequest, SpawnedAgent};
 use crate::workflow::spec::{Directive, Workflow};
+use crate::workflow::worktree::{allocate as allocate_worktree, cleanup as cleanup_worktree, WorktreeAllocation, WorktreeError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum RuntimeError {
@@ -38,6 +39,8 @@ pub enum RuntimeError {
     UnknownRole(String),
     #[error("expression: {0}")]
     Expr(#[from] crate::workflow::expr::ExprError),
+    #[error("worktree: {0}")]
+    Worktree(#[from] WorktreeError),
 }
 
 /// Runtime-side outcome of dispatching one issue. Useful to surface in
@@ -143,7 +146,35 @@ impl WorkflowRuntime {
             .get(&final_role)
             .ok_or_else(|| RuntimeError::UnknownRole(final_role.clone()))?;
 
-        // 3. Spawn `claude -p`, wait for completion, parse final structured
+        // 3. If the role wants write isolation, carve a fresh worktree off
+        //    the canonical clone before the spawn. Cleanup is best-effort
+        //    on the way out, regardless of whether on_result succeeded.
+        let canonical_repo_path = PathBuf::from(&repo.path);
+        let worktree = if role_cfg.needs_worktree {
+            let alloc = allocate_worktree(&canonical_repo_path, issue.number, None)?;
+            // Surface the carved branch + worktree path so YAML templates
+            // (push_branch_and_pr's body, comments, …) can reference them.
+            ctx.bindings
+                .insert("branch".into(), Value::String(alloc.branch.clone()));
+            ctx.bindings.insert(
+                "worktree_path".into(),
+                Value::String(alloc.worktree_path.to_string_lossy().into_owned()),
+            );
+            // Action handlers (push_branch_and_pr / run_command with
+            // implicit cwd) follow rt.repo_path — point that at the
+            // worktree so push happens from there.
+            rt.repo_path = alloc.worktree_path.clone();
+            Some(alloc)
+        } else {
+            None
+        };
+
+        let spawn_cwd = worktree
+            .as_ref()
+            .map(|w| w.worktree_path.as_path())
+            .unwrap_or(canonical_repo_path.as_path());
+
+        // 4. Spawn `claude -p`, wait for completion, parse final structured
         //    output (None when the agent emitted no parseable JSON tail).
         let spawn_req = SpawnRequest {
             role: &final_role,
@@ -153,25 +184,40 @@ impl WorkflowRuntime {
             // repo_id is best-effort: 0 is fine for the workflow runtime
             // path because the DB row is keyed by run_id, not repo_id.
             repo_id: 0,
-            repo_path: Path::new(&repo.path),
+            repo_path: spawn_cwd,
             workflow_dir: &self.workflow_dir,
             issue: &issue,
-            prompt_header: &build_prompt_header(&final_role, final_mode.as_deref(), &issue),
+            prompt_header: &build_prompt_header(
+                &final_role,
+                final_mode.as_deref(),
+                &issue,
+                worktree.as_ref(),
+            ),
         };
-        let agent: SpawnedAgent = run_spawn(
+        let spawn_result = run_spawn(
             self.app.clone(),
             self.db.clone(),
             self.one_shot.clone(),
             spawn_req,
         )
-        .await?;
+        .await;
 
-        // 4. Translate structured output into GitHub side effects via
+        let agent: SpawnedAgent = match spawn_result {
+            Ok(a) => a,
+            Err(e) => {
+                if let Some(alloc) = &worktree {
+                    cleanup_worktree(alloc);
+                }
+                return Err(RuntimeError::Spawn(e));
+            }
+        };
+
+        // 5. Translate structured output into GitHub side effects via
         //    on_result handlers; fall back to on_no_structured_output when
         //    the agent didn't emit parseable JSON.
-        let kind_str = match agent.structured_output.as_ref().and_then(extract_kind) {
+        let on_result_outcome = match agent.structured_output.as_ref().and_then(extract_kind) {
             Some(k) => {
-                apply_on_result(
+                let result = apply_on_result(
                     &self.wf,
                     &final_role,
                     &k,
@@ -179,14 +225,20 @@ impl WorkflowRuntime {
                     &mut ctx,
                     &engine,
                     &mut rt,
-                )?;
-                Some(k)
+                );
+                result.map(|()| Some(k))
             }
-            None => {
-                apply_degrade(&self.wf, &mut ctx, &engine, &mut rt)?;
-                None
-            }
+            None => apply_degrade(&self.wf, &mut ctx, &engine, &mut rt).map(|()| None),
         };
+
+        // 6. Always tear down the worktree, even if on_result errored —
+        //    leaving stale worktrees blocks the next spawn for the same
+        //    issue.
+        if let Some(alloc) = &worktree {
+            cleanup_worktree(alloc);
+        }
+
+        let kind_str = on_result_outcome?;
 
         Ok(DispatchOutcome::Spawned {
             role: final_role,
@@ -202,16 +254,34 @@ fn extract_kind(v: &Value) -> Option<String> {
 
 /// Bog-standard prompt header — the orchestrator prepends this to the
 /// issue body before handing the prompt to claude. Mirrors the supervisor's
-/// per-spawn header convention.
-pub fn build_prompt_header(role: &str, mode: Option<&str>, issue: &IssueSnapshot) -> String {
-    let mode_clause = mode.map(|m| format!("MODE: {m}\n")).unwrap_or_default();
-    format!(
-        "ROLE: {role}\n{mode_clause}ISSUE: #{num} ({state})\nTITLE: {title}\n",
-        role = role,
+/// per-spawn header convention. When the agent runs inside a worktree, the
+/// header surfaces the carved branch + worktree path so the agent can echo
+/// them in its structured output without re-deriving from `git`.
+pub fn build_prompt_header(
+    role: &str,
+    mode: Option<&str>,
+    issue: &IssueSnapshot,
+    worktree: Option<&WorktreeAllocation>,
+) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("ROLE: {role}\n"));
+    if let Some(m) = mode {
+        out.push_str(&format!("MODE: {m}\n"));
+    }
+    out.push_str(&format!(
+        "ISSUE: #{num} ({state})\nTITLE: {title}\n",
         num = issue.number,
         state = issue.state,
         title = issue.title,
-    )
+    ));
+    if let Some(w) = worktree {
+        out.push_str(&format!(
+            "WORKTREE: {path}\nBRANCH: {branch}\n",
+            path = w.worktree_path.display(),
+            branch = w.branch,
+        ));
+    }
+    out
 }
 
 /// Parse an issue body for `<!-- key: value -->` markers. Public so entry/*
@@ -252,18 +322,31 @@ mod tests {
 
     #[test]
     fn build_prompt_header_includes_role_mode_issue() {
-        let h = build_prompt_header("arch-shape", Some("audit"), &issue(7, "Demo", "open"));
+        let h = build_prompt_header("arch-shape", Some("audit"), &issue(7, "Demo", "open"), None);
         assert!(h.contains("ROLE: arch-shape"));
         assert!(h.contains("MODE: audit"));
         assert!(h.contains("ISSUE: #7 (open)"));
         assert!(h.contains("TITLE: Demo"));
+        assert!(!h.contains("BRANCH:"));
     }
 
     #[test]
     fn build_prompt_header_omits_mode_clause_when_none() {
-        let h = build_prompt_header("implementer", None, &issue(1, "x", "open"));
+        let h = build_prompt_header("implementer", None, &issue(1, "x", "open"), None);
         assert!(!h.contains("MODE:"));
         assert!(h.contains("ROLE: implementer"));
+    }
+
+    #[test]
+    fn build_prompt_header_surfaces_worktree_when_present() {
+        let alloc = WorktreeAllocation {
+            repo_root: PathBuf::from("/tmp/repo"),
+            worktree_path: PathBuf::from("/tmp/repo-worktrees/spawn-1-99"),
+            branch: "spawn-1-99".into(),
+        };
+        let h = build_prompt_header("implementer", None, &issue(1, "x", "open"), Some(&alloc));
+        assert!(h.contains("WORKTREE: /tmp/repo-worktrees/spawn-1-99"));
+        assert!(h.contains("BRANCH: spawn-1-99"));
     }
 
     #[test]
