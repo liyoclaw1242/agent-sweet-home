@@ -17,6 +17,57 @@ use minijinja::{Environment, Error};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+// ---------------------------------------------------------------------------
+// Custom Jinja filters used by agent-team-v2.workflow.yaml
+// ---------------------------------------------------------------------------
+
+/// `42 | formatdep` → `"#42"`. Used in comment templates that list deps.
+fn filter_formatdep(value: Value) -> Result<String, Error> {
+    if let Some(n) = value.as_i64() {
+        return Ok(format!("#{n}"));
+    }
+    if let Some(s) = value.as_str() {
+        let trimmed = s.trim_start_matches('#');
+        return Ok(format!("#{trimmed}"));
+    }
+    Ok(format!("#{value}"))
+}
+
+/// `idx | lookup_iter_result_number` → number of `_iter_results[idx]`.
+/// Returns `none` when the index is out of range or the entry is malformed.
+/// Used by arch-shape's child-task fan-out to resolve `task.deps` (array
+/// indices into prior siblings of the same `for_each` loop).
+fn filter_lookup_iter_result_number(value: Value, state: &minijinja::State) -> Value {
+    let Some(idx) = value.as_i64() else {
+        return Value::from(());
+    };
+    let Some(iter_results) = state.lookup("_iter_results") else {
+        return Value::from(());
+    };
+    let Ok(item) = iter_results.get_item(&Value::from(idx)) else {
+        return Value::from(());
+    };
+    item.get_attr("number").unwrap_or(Value::from(()))
+}
+
+/// `'42' | asint` → 42. minijinja has `int(...)` but our YAML uses the
+/// `asint` name (older convention from the supervisor port). Provided as a
+/// thin alias.
+fn filter_asint(value: Value) -> Result<i64, Error> {
+    if let Some(n) = value.as_i64() {
+        return Ok(n);
+    }
+    if let Some(s) = value.as_str() {
+        if let Ok(n) = s.trim().parse::<i64>() {
+            return Ok(n);
+        }
+    }
+    Err(Error::new(
+        minijinja::ErrorKind::InvalidOperation,
+        format!("asint: not coercible: {value:?}"),
+    ))
+}
+
 /// Snapshot of an issue surfaced to expressions. Phase-1 only — Phase 2
 /// extends this with bindings + `out` (structured spawn output).
 #[derive(Debug, Clone)]
@@ -88,7 +139,10 @@ impl Default for ExprEngine {
 
 impl ExprEngine {
     pub fn new() -> Self {
-        let env = Environment::new();
+        let mut env = Environment::new();
+        env.add_filter("formatdep", filter_formatdep);
+        env.add_filter("lookup_iter_result_number", filter_lookup_iter_result_number);
+        env.add_filter("asint", filter_asint);
         Self { env }
     }
 
