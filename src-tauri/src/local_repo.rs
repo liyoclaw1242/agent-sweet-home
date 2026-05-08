@@ -18,9 +18,19 @@ pub struct LocalRepoInspection {
     pub error: Option<String>,
 }
 
+/// Default base path used when the user has not configured one in Settings.
+/// `~/Projects` is the convention we already use elsewhere (test fixtures,
+/// onboarding) and matches what most contributors already have on disk.
+pub const DEFAULT_BASE_PATH: &str = "~/Projects";
+
 pub fn inspect_at(base_path: &str, repo_name: &str) -> LocalRepoInspection {
+    let effective_base = if base_path.trim().is_empty() {
+        DEFAULT_BASE_PATH
+    } else {
+        base_path
+    };
     let mut result = LocalRepoInspection {
-        configured_base_path: base_path.to_string(),
+        configured_base_path: effective_base.to_string(),
         repo_path: String::new(),
         exists: false,
         is_git_repo: false,
@@ -30,12 +40,7 @@ pub fn inspect_at(base_path: &str, repo_name: &str) -> LocalRepoInspection {
         error: None,
     };
 
-    if base_path.trim().is_empty() {
-        result.error = Some("Default local path not configured".into());
-        return result;
-    }
-
-    let expanded = expand_tilde(base_path);
+    let expanded = expand_tilde(effective_base);
     let repo_path: PathBuf = expanded.join(repo_name);
     result.repo_path = repo_path.to_string_lossy().to_string();
     result.exists = repo_path.exists();
@@ -130,13 +135,14 @@ mod tests {
     }
 
     #[test]
-    fn inspect_at_with_empty_base_returns_configured_error() {
+    fn inspect_at_with_empty_base_falls_back_to_default_projects_dir() {
         let result = inspect_at("", "alpha");
-        assert!(!result.exists);
-        assert_eq!(
-            result.error.as_deref(),
-            Some("Default local path not configured")
-        );
+        // The fallback advertises ~/Projects so the UI can show it.
+        assert_eq!(result.configured_base_path, DEFAULT_BASE_PATH);
+        assert!(result.repo_path.ends_with("/Projects/alpha"));
+        // No "not configured" error any more — the path simply may or may
+        // not exist on disk, which is reflected in `exists`.
+        assert_eq!(result.error, None);
     }
 
     #[test]

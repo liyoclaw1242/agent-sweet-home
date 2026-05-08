@@ -3,19 +3,21 @@ use crate::db::Db;
 use crate::github::{Issue, PullRequest, Repo};
 use crate::local_repo::{inspect_at, LocalRepoInspection};
 use crate::settings::get_settings_inner;
+use crate::terminal::{Registry, SessionInfo};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header::AUTHORIZATION, HeaderMap, StatusCode},
     routing::get,
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::Path as StdPath;
 
 #[derive(Clone)]
 pub struct ServerCtx {
     pub db: Db,
+    pub registry: Registry,
     pub token: String,
 }
 
@@ -33,6 +35,7 @@ pub fn router(ctx: ServerCtx) -> Router {
         .route("/health", get(health))
         .route("/repos", get(list_repos))
         .route("/repos/{name}", get(get_repo_detail))
+        .route("/sessions", get(list_sessions))
         .with_state(ctx)
 }
 
@@ -129,6 +132,26 @@ fn auth(ctx: &ServerCtx, headers: &HeaderMap) -> Result<(), StatusCode> {
     }
 }
 
+#[derive(Deserialize)]
+struct SessionsQuery {
+    repo: Option<String>,
+    #[serde(rename = "repoId")]
+    repo_id: Option<i64>,
+}
+
+async fn list_sessions(
+    State(ctx): State<ServerCtx>,
+    Query(q): Query<SessionsQuery>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<SessionInfo>>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let mut sessions = ctx.registry.snapshot_all_public(q.repo_id);
+    if let Some(name) = q.repo {
+        sessions.retain(|s| s.repo_name == name);
+    }
+    Ok(Json(sessions))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,6 +198,7 @@ mod tests {
 
         ServerCtx {
             db: Db::from_connection(conn),
+            registry: crate::terminal::Registry::new(),
             token: TOKEN.into(),
         }
     }
@@ -281,5 +305,38 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn list_sessions_requires_auth_and_returns_empty_when_no_terminals() {
+        let ctx = ctx_with_repo();
+        let app = router(ctx);
+
+        let unauth = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/sessions")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauth.status(), StatusCode::UNAUTHORIZED);
+
+        let ok = app
+            .oneshot(
+                Request::builder()
+                    .uri("/sessions")
+                    .header(AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ok.status(), StatusCode::OK);
+        let body = to_bytes(ok.into_body(), 1024 * 64).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 0);
     }
 }

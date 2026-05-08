@@ -4,6 +4,7 @@ mod github;
 mod http_server;
 mod local_repo;
 mod settings;
+mod terminal;
 
 use tauri::Manager;
 
@@ -21,12 +22,16 @@ pub fn run() {
             let db = db::Db::open(&db_path).expect("failed to open database");
             app.manage(db.clone());
 
+            let registry = terminal::Registry::new();
+            app.manage(registry.clone());
+
             // Spawn a localhost-only HTTP API for external CLIs / agents to query
             // the cached repo list and details. The auth token + port are written
             // to <app_data_dir>/server.json (0600 on unix).
             let token = uuid::Uuid::new_v4().to_string();
             let server_ctx = http_server::ServerCtx {
                 db: db.clone(),
+                registry: registry.clone(),
                 token,
             };
             let server_app_dir = app_dir.clone();
@@ -47,6 +52,12 @@ pub fn run() {
             github::fetch_issues,
             github::fetch_prs,
             local_repo::inspect_local_repo,
+            terminal::pty_create,
+            terminal::pty_write,
+            terminal::pty_resize,
+            terminal::pty_kill,
+            terminal::pty_list,
+            terminal::pty_get,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

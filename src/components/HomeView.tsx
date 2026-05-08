@@ -134,21 +134,15 @@ export default function HomeView({ repo }: Props) {
         <dt>Local path</dt>
         <dd>
           {inspection ? (
-            inspection.configuredBasePath ? (
-              <>
-                <code>{inspection.repoPath}</code>
-                {!inspection.exists && (
-                  <span className="badge badge-warn">missing</span>
-                )}
-                {inspection.exists && !inspection.isGitRepo && (
-                  <span className="badge badge-warn">not a git repo</span>
-                )}
-              </>
-            ) : (
-              <span className="badge badge-warn">
-                No default local path set in Settings
-              </span>
-            )
+            <>
+              <code>{inspection.repoPath}</code>
+              {!inspection.exists && (
+                <span className="badge badge-warn">missing</span>
+              )}
+              {inspection.exists && !inspection.isGitRepo && (
+                <span className="badge badge-warn">not a git repo</span>
+              )}
+            </>
           ) : (
             "Loading…"
           )}
