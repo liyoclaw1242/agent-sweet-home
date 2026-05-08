@@ -8,7 +8,13 @@ mod settings;
 mod terminal;
 pub mod workflow;
 
+use std::sync::Arc;
 use tauri::Manager;
+
+/// Holds the watch sender that, when set to `true`, asks every entry-mode
+/// driver to drain in-flight dispatches and exit cleanly. Persisted as
+/// Tauri-managed state so a future `workflow_stop` command can flip it.
+struct WorkflowShutdown(tokio::sync::watch::Sender<bool>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -49,6 +55,45 @@ pub fn run() {
                     eprintln!("agent-sweet-home: HTTP API stopped with error: {e}");
                 }
             });
+
+            // ---- Workflow runtime --------------------------------------
+            //
+            // Look for `WORKFLOW_FILE` env var (override) or fall back to
+            // `<app_data_dir>/workflow.yaml`. If the file doesn't exist we
+            // log + skip — the rest of the app still works without a
+            // declarative workflow loaded.
+            let workflow_path = std::env::var("WORKFLOW_FILE")
+                .ok()
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| app_dir.join("workflow.yaml"));
+
+            if workflow_path.exists() {
+                match workflow::load(&workflow_path) {
+                    Ok(wf) => {
+                        let runtime = Arc::new(workflow::WorkflowRuntime::new(
+                            wf,
+                            workflow::workflow_dir_of(&workflow_path),
+                            app.handle().clone(),
+                            db.clone(),
+                            one_shot::OneShotState::new(),
+                        ));
+                        // Channel held in app state so a future Tauri
+                        // command (`workflow_stop`) can flip it on demand.
+                        let (tx, rx) = tokio::sync::watch::channel(false);
+                        app.manage(WorkflowShutdown(tx));
+                        let _handles = workflow::start(runtime, rx);
+                        eprintln!("workflow: loaded {}", workflow_path.display());
+                    }
+                    Err(e) => {
+                        eprintln!("workflow: failed to load {}: {e}", workflow_path.display());
+                    }
+                }
+            } else {
+                eprintln!(
+                    "workflow: no workflow.yaml at {} (set WORKFLOW_FILE to override)",
+                    workflow_path.display()
+                );
+            }
 
             Ok(())
         })
