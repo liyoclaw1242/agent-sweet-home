@@ -129,6 +129,11 @@ pub enum ExprError {
 
 pub struct ExprEngine {
     env: Environment<'static>,
+    /// `shared_templates` body strings indexed by name. Populated via
+    /// `with_shared_templates`. `render_body_template` looks at the
+    /// `__shared.<name>` prefix and substitutes from this map before
+    /// rendering — runtime convention documented in WORKFLOW.md.
+    shared_templates: HashMap<String, String>,
 }
 
 impl Default for ExprEngine {
@@ -145,10 +150,25 @@ impl ExprEngine {
         // `| default(...)` filters everywhere, which need a chainable
         // undefined to short-circuit cleanly.
         env.set_undefined_behavior(minijinja::UndefinedBehavior::Chainable);
+        // Register contrib filters/tests/globals — `truncate`, `wordwrap`,
+        // `pluralize`, date helpers, etc. Production YAML (and WORKFLOW.md's
+        // claimed filter list) leans on these; without contrib they error
+        // as `unknown filter`.
+        minijinja_contrib::add_to_environment(&mut env);
         env.add_filter("formatdep", filter_formatdep);
         env.add_filter("lookup_iter_result_number", filter_lookup_iter_result_number);
         env.add_filter("asint", filter_asint);
-        Self { env }
+        Self {
+            env,
+            shared_templates: HashMap::new(),
+        }
+    }
+
+    /// Attach a `shared_templates` map (typically `wf.shared_templates`) so
+    /// `render_body_template` can resolve `__shared.<name>` references.
+    pub fn with_shared_templates(mut self, shared: HashMap<String, String>) -> Self {
+        self.shared_templates = shared;
+        self
     }
 
     fn make_root(ctx: &ExprContext) -> Value {
@@ -214,6 +234,23 @@ impl ExprEngine {
         let tmpl = self.env.template_from_str(template)?;
         let out = tmpl.render(root)?;
         Ok(out)
+    }
+
+    /// Render a body template, honouring the `__shared.<name>` prefix
+    /// convention. When `template` starts with `__shared.`, looks up the
+    /// matching entry in `shared_templates` and renders that body. Falls back
+    /// to inline rendering when no prefix or no match.
+    pub fn render_body_template(
+        &self,
+        template: &str,
+        ctx: &ExprContext,
+    ) -> Result<String, ExprError> {
+        if let Some(name) = template.strip_prefix("__shared.") {
+            if let Some(body) = self.shared_templates.get(name) {
+                return self.render(body, ctx);
+            }
+        }
+        self.render(template, ctx)
     }
 
     // -- predicate helpers used by dispatch.rs --------------------------------
@@ -343,5 +380,56 @@ mod tests {
         let ctx = ExprContext::default();
         let err = engine.eval_bool("123.45", &ctx).unwrap_err();
         assert!(matches!(err, ExprError::NotBoolean(_)));
+    }
+
+    #[test]
+    fn truncate_filter_is_registered_via_contrib() {
+        let engine = ExprEngine::new();
+        let ctx = ExprContext::default();
+        // minijinja-contrib's truncate is kwargs-only: length=, end=,
+        // killwords=, leeway=. Different from Jinja2's positional form —
+        // YAML authors should write `truncate(length=N, end='…')`.
+        let out = engine
+            .render(
+                "{{ 'abcdefghijklmnop' | truncate(length=10, end='…', leeway=0) }}",
+                &ctx,
+            )
+            .unwrap();
+        assert!(out.ends_with('…'));
+        assert!(out.chars().count() <= 10);
+    }
+
+    #[test]
+    fn render_body_template_resolves_shared_prefix() {
+        let mut shared = HashMap::new();
+        shared.insert("greeting".into(), "hello {{ issue.title }}".into());
+        let engine = ExprEngine::new().with_shared_templates(shared);
+        let ctx = ExprContext::with_issue(issue_with_labels(&[]));
+        let out = engine
+            .render_body_template("__shared.greeting", &ctx)
+            .unwrap();
+        assert_eq!(out, "hello demo");
+    }
+
+    #[test]
+    fn render_body_template_falls_back_to_inline_when_no_prefix() {
+        let engine = ExprEngine::new();
+        let ctx = ExprContext::with_issue(issue_with_labels(&[]));
+        let out = engine
+            .render_body_template("plain {{ issue.title }}", &ctx)
+            .unwrap();
+        assert_eq!(out, "plain demo");
+    }
+
+    #[test]
+    fn render_body_template_falls_back_when_shared_name_not_found() {
+        let engine = ExprEngine::new();
+        let ctx = ExprContext::with_issue(issue_with_labels(&[]));
+        // No shared_templates registered → renders the raw `__shared.foo`
+        // string (which has no Jinja syntax, so comes back verbatim).
+        let out = engine
+            .render_body_template("__shared.missing", &ctx)
+            .unwrap();
+        assert_eq!(out, "__shared.missing");
     }
 }

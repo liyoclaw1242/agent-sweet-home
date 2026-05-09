@@ -15,7 +15,9 @@ use serde::Deserialize;
 use tokio::sync::Semaphore;
 
 use super::{EntryError, IssueSource, RepoRef};
-use crate::workflow::command::{render_template, run_capture_json};
+use crate::workflow::command::{
+    render_template, run_capture, run_capture_json, shell_quote, CommandError,
+};
 use crate::workflow::expr::IssueSnapshot;
 use crate::workflow::runtime::{parse_body_markers, WorkflowRuntime};
 use crate::workflow::spec::PollConfig;
@@ -160,6 +162,20 @@ async fn run_one_tick(
                             "workflow: {}#{} dispatch error: {}",
                             repo_for_task.repo, issue_for_task.number, e
                         );
+                        // Quarantine the issue so the next poll tick doesn't
+                        // re-dispatch the same failing case (each retry costs
+                        // a real $$ spawn). Add `human-review`, drop
+                        // `status:ready`. Best-effort — failures here are
+                        // logged but don't escalate.
+                        if let Err(qe) = quarantine_issue(
+                            &repo_for_task.repo,
+                            issue_for_task.number,
+                        ) {
+                            eprintln!(
+                                "workflow: {}#{} quarantine failed: {}",
+                                repo_for_task.repo, issue_for_task.number, qe
+                            );
+                        }
                     }
                 }
             });
@@ -169,6 +185,22 @@ async fn run_one_tick(
     for task in tasks {
         let _ = task.await;
     }
+    Ok(())
+}
+
+/// Mark an issue as failed-needs-human after a dispatch error so the next
+/// poll tick doesn't re-fire the same failing case (each retry costs a
+/// real spawn). Adds `human-review` and removes `status:ready` in a single
+/// `gh issue edit` invocation. Best-effort — the caller logs failures.
+fn quarantine_issue(repo: &str, issue_number: u64) -> Result<(), CommandError> {
+    let cmd = format!(
+        "gh issue edit {num} --repo {repo} --add-label {hr} --remove-label {ready}",
+        num = issue_number,
+        repo = shell_quote(repo),
+        hr = shell_quote("human-review"),
+        ready = shell_quote("status:ready"),
+    );
+    run_capture(&cmd)?;
     Ok(())
 }
 

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use crate::workflow::command::{run_capture, run_capture_full, CommandError};
+use crate::workflow::command::{run_capture, run_capture_full, shell_quote, CommandError};
 use crate::workflow::expr::{ExprContext, ExprEngine, IssueSnapshot};
 use crate::workflow::spec::{
     ActionInput, ActionStep, BoolOrExpr, CommentBody, ControlFlow, DepsValue, ElifBranch,
@@ -553,6 +553,7 @@ fn execute_action_inner(
             stdin.as_deref(),
             bind_stdout.as_deref(),
             bind_exit.as_deref(),
+            rt,
             ctx,
             engine,
         ),
@@ -641,7 +642,7 @@ fn render_comment_body(
     Ok(match body {
         CommentBody::Inline(template) => engine.render(template, ctx)?,
         CommentBody::Detailed { template, body } => match (template, body) {
-            (Some(t), _) => engine.render(t, ctx)?,
+            (Some(t), _) => engine.render_body_template(t, ctx)?,
             (None, Some(b)) => b.clone(),
             (None, None) => String::new(),
         },
@@ -662,7 +663,7 @@ fn action_create_issue(
 ) -> Result<(), ResultError> {
     let title_rendered = engine.render(title, ctx)?;
     let mut body_rendered = match (body_template, body) {
-        (Some(t), _) => engine.render(t, ctx)?,
+        (Some(t), _) => engine.render_body_template(t, ctx)?,
         (None, Some(b)) => b.to_string(),
         (None, None) => String::new(),
     };
@@ -892,14 +893,27 @@ fn action_push_branch_and_pr(
             .and_then(|o| o.get("branch"))
             .and_then(|v| v.as_str())
             .map(str::to_string)
+            // Fallback to ctx.bindings["branch"] — runtime stamps the carved
+            // worktree branch into bindings before on_result fires, so this
+            // is the natural source when YAML doesn't say `branch:` and the
+            // agent's JSON output didn't include it.
+            .or_else(|| {
+                ctx.bindings
+                    .get("branch")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
             .ok_or_else(|| {
-                ResultError::BadCreateIssue("push_branch_and_pr: branch unset and out.branch missing".into())
+                ResultError::BadCreateIssue(
+                    "push_branch_and_pr: branch unset, out.branch missing, bindings.branch missing"
+                        .into(),
+                )
             })?,
     };
     let base_rendered = engine.render(base, ctx)?;
     let title_rendered = engine.render(title, ctx)?;
     let mut body_rendered = match body_template {
-        Some(t) => engine.render(t, ctx)?,
+        Some(t) => engine.render_body_template(t, ctx)?,
         None => String::new(),
     };
     if let Some(note) = post_merge_note {
@@ -939,6 +953,7 @@ fn action_run_command(
     stdin: Option<&str>,
     bind_stdout: Option<&str>,
     bind_exit: Option<&str>,
+    rt: &RuntimeContext,
     ctx: &mut ExprContext,
     engine: &ExprEngine,
 ) -> Result<(), ResultError> {
@@ -947,12 +962,16 @@ fn action_run_command(
         .iter()
         .map(|a| engine.render(a, ctx))
         .collect::<Result<Vec<_>, _>>()?;
+    // When YAML doesn't supply `cwd:`, default to `rt.repo_path` — for
+    // `needs_worktree` roles the runtime sets this to the carved worktree
+    // path, so `git add`/`git commit` on per-spawn artefacts land in the
+    // right place. For non-worktree roles it's the canonical clone.
     let cwd_clause = match cwd {
         Some(c) => {
             let rendered = engine.render(c, ctx)?;
             format!("cd {} && ", shell_quote(&rendered))
         }
-        None => String::new(),
+        None => format!("cd {} && ", shell_quote(&rt.repo_path.to_string_lossy())),
     };
     let cmd = format!(
         "{cwd}{argv}",
@@ -987,20 +1006,6 @@ fn render_each(
         .iter()
         .map(|s| engine.render(s, ctx).map_err(ResultError::from))
         .collect()
-}
-
-fn shell_quote(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('\'');
-    for ch in s.chars() {
-        if ch == '\'' {
-            out.push_str("'\\''");
-        } else {
-            out.push(ch);
-        }
-    }
-    out.push('\'');
-    out
 }
 
 fn find_handler<'a>(wf: &'a Workflow, role: &str, kind: &str) -> Option<&'a KindHandler> {

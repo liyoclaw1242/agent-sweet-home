@@ -175,7 +175,7 @@ Combinators nest arbitrarily.
 | ------------------ | ------------------ | --------------- | ----------------------------------------- |
 | `no_action`        | —                  | `reason`        | Skip this issue, no side effects.         |
 | `wait`             | —                  | `reason`        | In-flight; no spawn, no labels.           |
-| `human_review`     | —                  | `reason`        | Flag for human; runtime should add `human-review` label (Phase 2). |
+| `human_review`     | —                  | `reason`        | Flag for human; runtime adds `human-review` label idempotently before returning, so the dispatch loop doesn't re-fire. |
 | `spawn_fresh`      | `role`             | `mode`, `reason` | Start new claude subprocess with the role's config. |
 
 ## PRE-SPAWN (`pre_spawn:`)
@@ -386,9 +386,7 @@ Expression engine: minijinja 2.x with custom filters. See `expr.rs`.
 `has_label(name)`, `matches_label(prefix)`, `not_has_label(name)`,
 `has_marker(key)` — exposed as both filter and global function.
 
-### Custom filters used by prod YAML but NOT YET registered
-
-Phase 2 must register these in `expr.rs:ExprEngine::new()`:
+### Custom filters registered in `expr.rs:ExprEngine::new()`
 
 | Filter / Function           | Purpose                                                    |
 | --------------------------- | ---------------------------------------------------------- |
@@ -396,9 +394,20 @@ Phase 2 must register these in `expr.rs:ExprEngine::new()`:
 | `lookup_iter_result_number` | Inside `for_each`, map an int index to the prior iteration's created-issue number. |
 | `asint`                     | Coerce string to int. Used to resolve dep array indices.   |
 
-`tojson`, `length`, `default`, `groupby`, `map`, `attribute`, `selectattr`,
-`reject`, `split`, `int`, `join`, `trim`, `format`, `truncate` are
-minijinja standard and work today.
+**Core (always available)**: `tojson`, `length`, `default`, `attribute`,
+`split`, `int`, `join`, `trim`, `format`, `lower`, `upper`, `escape` /
+`safe` come from minijinja core.
+
+**Contrib (registered in `ExprEngine::new` via `minijinja_contrib::add_to_environment`)**:
+`truncate`, `wordwrap`, `pluralize`, `pyfromstr`, `slug`, plus date/time helpers.
+
+⚠️ minijinja-contrib's `truncate` is **kwargs-only**. Use
+`{{ s | truncate(length=500, end='…') }}`, NOT Jinja2's positional form
+`truncate(500, '…')` — the latter raises `TooManyArguments`.
+
+`groupby` / `map` / `selectattr` / `reject` are *not* in either crate today;
+authors who need them have to inline an `if` test or use `expr.eval_value`
+on a richer expression.
 
 ## TEMPLATE NAMESPACES
 
@@ -409,8 +418,12 @@ minijinja standard and work today.
 | `templates/foo.md`                  | File path, relative to the workflow YAML directory. |
 | `__shared.<name>`                   | Look up `Workflow.shared_templates[<name>]`.        |
 
-`__shared.` prefix is a runtime convention; the schema does not parse it
-specially. Phase-2 template loader must check the prefix.
+`__shared.` prefix is a runtime convention. `expr.rs::ExprEngine::render_body_template`
+checks the prefix and substitutes from `wf.shared_templates` before
+rendering. Falls back to inline rendering when the prefix is absent or
+the named entry is missing. Action handlers that accept `body_template:`
+(`create_issue`, `comment` `template`, `push_branch_and_pr`) call
+`render_body_template` so the prefix works uniformly.
 
 ## UNBLOCK PASS (`unblock_pass:`)
 
@@ -445,7 +458,7 @@ on_no_structured_output:
 
         Last assistant text:
         ```
-        {{ spawn.last_assistant_text | default('(none)') | truncate(1500, end='') }}
+        {{ spawn.last_assistant_text | default('(none)') | truncate(length=1500, end='') }}
         ```
     - add_labels: ["human-review"]
     - transition_status: { from: in-progress, to: blocked }
@@ -464,6 +477,10 @@ on_no_structured_output:
 | `repo_path_exists` / `path_exists` / `role` predicates always evaluate `false` in dispatch              | They're pre-spawn-only atoms. `dispatch.rs` returns `false` for them by design (`dispatch.rs:81`).    | Use them in `pre_spawn:` only, never in `dispatch.rules:`.                         |
 | `shared_templates:` block silently dropped                                                              | Pre-Phase-1.5 schema didn't have the field; you might be on an old build.                              | Confirm `cargo test workflow::spec::tests::shared_templates_section_is_captured` passes. |
 | `entry:` missing → schema parse error                                                                   | `entry` is required since Phase 1.5.                                                                   | Add at least `entry: { modes: [manual], manual: { issue_source: { command: "..." } } }`. |
+| `run_command` runs in tauri pwd, not the worktree, so `git add SMOKE.md` errors `pathspec did not match` | `run_command` defaults `cwd:` to `rt.repo_path` (worktree path for `needs_worktree` roles, canonical clone otherwise). If you wrote it before the default was added, an unset `cwd:` ran in tauri's pwd. | Upgrade to engine ≥ smoke-prep-3, or set `cwd: "{{ worktree_path }}"` explicitly. |
+| `push_branch_and_pr: branch unset, out.branch missing, bindings.branch missing`                          | Action expected a branch but YAML didn't say `branch:`, agent JSON didn't include `branch`, AND `bindings.branch` was empty (i.e. role had `needs_worktree: false`).                                       | Either set `branch: "{{ branch }}"` (worktree role) or include `branch` in the agent's JSON output. |
+| `truncate(500, end='…')` errors `TooManyArguments`                                                       | minijinja-contrib's `truncate` is **kwargs-only**, unlike Jinja2's positional form.                                                                                                                       | Use `truncate(length=500, end='…')`.                                              |
+| Issue keeps re-spawning every poll tick after a dispatch error                                           | Pre-smoke-prep-3, on_result errors didn't quarantine. Now the poll loop adds `human-review` and removes `status:ready` on dispatch error so the next tick's rules don't match.                            | Upgrade engine. If you see the loop recur after that, dispatch error itself is leaking past the catch — file a bug.       |
 
 ## TEST FIXTURES
 

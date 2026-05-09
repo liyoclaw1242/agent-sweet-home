@@ -16,6 +16,7 @@ use tauri::AppHandle;
 
 use crate::db::Db;
 use crate::one_shot::OneShotState;
+use crate::workflow::command::{run_capture, shell_quote};
 use crate::workflow::dispatch::{dispatch, DispatchError};
 use crate::workflow::entry::RepoRef;
 use crate::workflow::expr::{ExprContext, ExprEngine, IssueSnapshot};
@@ -87,7 +88,8 @@ impl WorkflowRuntime {
         repo: &RepoRef,
         issue: IssueSnapshot,
     ) -> Result<DispatchOutcome, RuntimeError> {
-        let engine = ExprEngine::new();
+        let engine =
+            ExprEngine::new().with_shared_templates(self.wf.shared_templates.clone());
         let mut ctx = ExprContext::with_issue(issue.clone());
         let mut rt = RuntimeContext::from_issue(
             repo.repo.clone(),
@@ -114,7 +116,27 @@ impl WorkflowRuntime {
         match directive {
             Directive::NoAction { reason } => Ok(DispatchOutcome::NoAction { reason }),
             Directive::Wait { reason } => Ok(DispatchOutcome::Wait { reason }),
-            Directive::HumanReview { reason } => Ok(DispatchOutcome::HumanReview { reason }),
+            Directive::HumanReview { reason } => {
+                // Add `human-review` label idempotently. Mirrors the docstring
+                // intent at WORKFLOW.md (Phase 2 line item) and breaks the
+                // dispatch loop on issues whose predicate matched (else they
+                // re-evaluate to HumanReview every tick — silent but lossy).
+                if !issue.labels.iter().any(|l| l == "human-review") {
+                    let cmd = format!(
+                        "gh issue edit {num} --repo {repo} --add-label {hr}",
+                        num = issue.number,
+                        repo = shell_quote(&repo.repo),
+                        hr = shell_quote("human-review"),
+                    );
+                    if let Err(e) = run_capture(&cmd) {
+                        eprintln!(
+                            "workflow: {}#{} HumanReview label add failed: {}",
+                            repo.repo, issue.number, e
+                        );
+                    }
+                }
+                Ok(DispatchOutcome::HumanReview { reason })
+            }
             Directive::SpawnFresh { role, mode, .. } => {
                 self.run_spawn_pipeline(repo, issue, role, mode, ctx, engine, rt)
                     .await

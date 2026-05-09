@@ -87,6 +87,22 @@ fn next_char_boundary(s: &str, idx: usize) -> usize {
     j
 }
 
+/// POSIX-quote a string for safe inclusion in `sh -c` command lines.
+/// Wraps the value in single quotes, escaping any embedded apostrophes.
+pub fn shell_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for ch in s.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
+}
+
 /// Run a rendered command via `sh -c`, capture stdout. Used by entry/
 /// `*_source` resolvers and by step actions that shell out (e.g. `gh`).
 pub fn run_capture(rendered: &str) -> Result<Vec<u8>, CommandError> {
