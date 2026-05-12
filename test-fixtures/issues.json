@@ -1,0 +1,31 @@
+[
+  {
+    "number": 9001,
+    "title": "[smoke] Verify sweet-home dispatch fires for agent:noop / status:ready",
+    "body": "This issue exists only to verify the dispatch+pre_spawn pipeline.\n\nThe workflow should match the rule and resolve to `spawn_fresh role:noop`, then the pre_spawn hook should `abort_spawn` so no real claude is invoked.",
+    "state": "open",
+    "labels": [
+      {"name": "agent:noop"},
+      {"name": "status:ready"}
+    ]
+  },
+  {
+    "number": 9002,
+    "title": "[smoke] Issue that should NOT match any rule",
+    "body": "No matching dispatch rule for this issue. Expect Directive::NoAction.",
+    "state": "open",
+    "labels": [
+      {"name": "kind:test-only"}
+    ]
+  },
+  {
+    "number": 9003,
+    "title": "[smoke] Closed issue — should be filtered by issue_state rule",
+    "body": "Closed; first rule should drop this.",
+    "state": "closed",
+    "labels": [
+      {"name": "agent:noop"},
+      {"name": "status:ready"}
+    ]
+  }
+]

@@ -1,0 +1,50 @@
+# Smoke-test workflow for verifying the sweet-home dispatch pipeline.
+# Wires fake repos.json + issues.json sources so we don't touch GitHub.
+# Aborts every spawn via pre_spawn so no real `claude -p` is invoked
+# (and no $ is spent). Once we see clean "no_action" / "spawn aborted"
+# entries in the Tauri stderr, the plumbing is verified end-to-end.
+
+version: 1
+
+entry:
+  modes: [poll]
+  poll:
+    interval_sec: 10
+    max_in_flight: 2
+    repo_source:
+      command: "cat /d/agent-sweet-home/test-fixtures/repos.json"
+    issue_source:
+      command: "cat /d/agent-sweet-home/test-fixtures/issues.json"
+
+roles:
+  noop:
+    system_prompt_file: prompts/noop.md
+    add_dirs: []
+    allowed_tools: ["Read"]
+    disallowed_tools: ["Edit", "Write", "Bash"]
+    budget_usd: 0.01
+    model: claude-haiku-4-5-20251001
+
+dispatch:
+  rules:
+    # 1. Closed → no action.
+    - when: { issue_state: closed }
+      then: { directive: no_action, reason: "closed" }
+
+    # 2. agent:noop + status:ready → spawn noop (but pre_spawn aborts).
+    - when:
+        all:
+          - has_label: "agent:noop"
+          - has_label: "status:ready"
+      then: { directive: spawn_fresh, role: noop }
+
+    # Anything else → implicit no_action ("no rule matched").
+
+pre_spawn:
+  # Belt-and-braces safety: any spawn of the noop role aborts before
+  # claude is invoked. We're only verifying dispatch + spawn-args
+  # resolution today, so no `comment` (would shell `gh issue comment`
+  # against a non-existent fixture repo).
+  - if: { role: noop }
+    do:
+      - abort_spawn: true

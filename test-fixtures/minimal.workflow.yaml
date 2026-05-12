@@ -1,0 +1,25 @@
+version: 1
+
+entry:
+  modes: [manual]
+  manual:
+    issue_source:
+      command: |
+        gh issue view {issue_number} --repo {repo}
+          --json number,title,body,labels,state
+
+roles:
+  hello:
+    system_prompt_file: prompts/hello.md
+    allowed_tools: [Read]
+    budget_usd: 0.10
+
+dispatch:
+  rules:
+    - when: { issue_state: closed }
+      then: { directive: no_action, reason: "closed" }
+    - when:
+        all:
+          - has_label: "status:ready"
+          - has_label: "agent:hello"
+      then: { directive: spawn_fresh, role: hello }
