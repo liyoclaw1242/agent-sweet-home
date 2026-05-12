@@ -300,15 +300,53 @@ fn extract_structured_output(log: &[LogLine]) -> Option<serde_json::Value> {
     None
 }
 
-/// Strip ```json fences if present. Agents sometimes wrap their final JSON
-/// in a markdown code fence; we accept either form.
+/// Locate a fenced JSON block inside `s` and return its inner content.
+///
+/// Accepts three shapes (in priority order):
+///   1. Fence at the very start of `s` (after trim) — `"```json\n{...}\n```"`.
+///   2. Fence at the very start, no language tag — `"```\n{...}\n```"`.
+///   3. Prose-preamble + fence anywhere later in `s` — agents commonly emit
+///      "All done. Here is the output:\n\n```json\n{...}\n```".
+///
+/// Returns `None` only when no fence at all is found. The `extract_structured_
+/// output` caller falls back to parsing the whole result text as raw JSON.
 fn strip_json_fence(s: &str) -> Option<&str> {
     let trimmed = s.trim();
-    let after_open = trimmed
+
+    // Fast path: fence at the very start.
+    if let Some(after) = trimmed
         .strip_prefix("```json")
-        .or_else(|| trimmed.strip_prefix("```"))?;
-    let inner = after_open.trim_start_matches('\n');
-    inner.strip_suffix("```").map(str::trim).or(Some(inner))
+        .or_else(|| trimmed.strip_prefix("```"))
+    {
+        return finalize_fence_body(after);
+    }
+
+    // Slow path: scan for the first fence opener inside the text. Prefer
+    // ```json over a bare ``` (more specific match wins).
+    let open_idx = match (trimmed.find("```json"), trimmed.find("```")) {
+        (Some(j), _) => j,
+        (None, Some(b)) => b,
+        (None, None) => return None,
+    };
+    let after = &trimmed[open_idx..];
+    let after = after
+        .strip_prefix("```json")
+        .or_else(|| after.strip_prefix("```"))?;
+    finalize_fence_body(after)
+}
+
+/// Given the slice immediately after the opening fence (`after_open`), trim
+/// the leading newline and the trailing closing fence.
+fn finalize_fence_body(after_open: &str) -> Option<&str> {
+    let inner = after_open
+        .trim_start_matches('\n')
+        .trim_start_matches('\r');
+    Some(
+        inner
+            .find("```")
+            .map(|close_idx| inner[..close_idx].trim())
+            .unwrap_or(inner),
+    )
 }
 
 #[cfg(test)]
@@ -445,5 +483,20 @@ mod tests {
             "stdout",
         )];
         assert!(extract_structured_output(&lines).is_none());
+    }
+
+    #[test]
+    fn extract_structured_output_handles_prose_then_fenced_json() {
+        // Real agent output shape: "All done. <prose>\n\n```json\n{...}\n```"
+        let fenced = "All done. Emitting the structured output envelope:\n\n```json\n{\"kind\":\"delivered\",\"branch\":\"spawn-1-x\"}\n```";
+        let result_event = serde_json::json!({
+            "type": "result",
+            "subtype": "success",
+            "result": fenced,
+        });
+        let lines = vec![log(&result_event.to_string(), "stdout")];
+        let v = extract_structured_output(&lines).unwrap();
+        assert_eq!(v.get("kind").and_then(|x| x.as_str()), Some("delivered"));
+        assert_eq!(v.get("branch").and_then(|x| x.as_str()), Some("spawn-1-x"));
     }
 }

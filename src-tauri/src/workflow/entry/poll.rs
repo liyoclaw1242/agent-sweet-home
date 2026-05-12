@@ -190,15 +190,19 @@ async fn run_one_tick(
 
 /// Mark an issue as failed-needs-human after a dispatch error so the next
 /// poll tick doesn't re-fire the same failing case (each retry costs a
-/// real spawn). Adds `human-review` and removes `status:ready` in a single
-/// `gh issue edit` invocation. Best-effort — the caller logs failures.
+/// real spawn). Adds `human-review` only; we do NOT remove a "ready" status
+/// label because workflows in the wild may use different ready-state
+/// conventions (`status:approved`, `status:ready`, etc.) and a hardcoded
+/// `--remove-label` causes the whole `gh issue edit` call to fail
+/// atomically when the label isn't present. The downstream dispatch rule
+/// that filters `has_label: "human-review"` is what actually halts the
+/// retry loop. Best-effort — the caller logs failures.
 fn quarantine_issue(repo: &str, issue_number: u64) -> Result<(), CommandError> {
     let cmd = format!(
-        "gh issue edit {num} --repo {repo} --add-label {hr} --remove-label {ready}",
+        "gh issue edit {num} --repo {repo} --add-label {hr}",
         num = issue_number,
         repo = shell_quote(repo),
         hr = shell_quote("human-review"),
-        ready = shell_quote("status:ready"),
     );
     run_capture(&cmd)?;
     Ok(())

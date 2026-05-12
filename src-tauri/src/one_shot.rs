@@ -506,7 +506,14 @@ pub fn start_run(
         insert_run(&conn, &info).map_err(|e| e.to_string())?;
     }
 
-    let mut cmd = Command::new(&argv[0]);
+    // Resolve the spawn binary. `build_argv` hardcodes "claude" as argv[0],
+    // which works on POSIX (the shim in PATH is invoked directly) but
+    // fails on Windows where npm-installed CLIs ship as `.cmd` batch
+    // shims (CreateProcess can't execute them directly). Allow override
+    // via `CLAUDE_BINARY` env so deployments can point at the underlying
+    // `.exe` (e.g. `…/npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe`).
+    let prog = std::env::var("CLAUDE_BINARY").unwrap_or_else(|_| argv[0].clone());
+    let mut cmd = Command::new(&prog);
     cmd.args(&argv[1..]);
     cmd.current_dir(&cwd_buf);
     cmd.stdin(Stdio::null());
