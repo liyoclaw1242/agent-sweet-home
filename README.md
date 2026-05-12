@@ -1,6 +1,6 @@
 # Agent Sweet Home
 
-Tauri 2 + React 19 + TypeScript 桌面應用，把 GitHub repo 列表、open issues / PRs、本機 clone 狀態，以及對該 repo 跑的 Claude Code session（互動式 PTY 終端機 + 一次性 `claude -p` 任務）集中在一個視窗，並開放 localhost HTTP API 供外部 CLI / agent 查詢與操作。
+Tauri 2 + React 19 + TypeScript 桌面應用，把 GitHub repo 列表、open issues / PRs、本機 clone 狀態，以及對該 repo 跑的 Claude Code session（互動式 PTY 終端機 + 一次性 `claude -p` 任務）集中在一個視窗，並以宣告式 YAML workflow 引擎自動 dispatch GitHub issues 給 AI agent。同時開放 localhost HTTP API 供外部 CLI / agent 查詢與操作。
 
 ## 主要功能
 
@@ -8,10 +8,15 @@ Tauri 2 + React 19 + TypeScript 桌面應用，把 GitHub repo 列表、open iss
 
 - **Header** — 應用標題 + 右上齒輪鈕（Settings）
 - **Sidebar** — 從 GitHub 拉到的 repo 列表，可點選；含 loading / error / 重新整理鈕
-- **Tabs**（`Home` / `Persistent (n)` / `One-Shot (n)` / `Cron (n)`） — 每個 repo 各自記憶 active tab，切 repo 不互相影響；未選 repo 時 disabled
+- **Tabs**（`Home` / `Persistent (n)` / `One-Shot (n)` / `Cron (n)` / `Workflow`） — 每個 repo 各自記憶 active tab，切 repo 不互相影響；未選 repo 時 disabled
   - `Persistent (n)` 顯示目前運行中的終端機數量
   - `One-Shot (n)` 顯示目前 status=`running` 的 one-shot 任務數量
 - **Settings 對話框** — 三欄位輸入：GitHub 帳號、Personal Access Token、預設本機路徑（例 `~/Projects`，留空時 backend 自動 fallback 到 `~/Projects`）；存入 SQLite，重開仍在
+- **Workflow 分頁** — 宣告式 YAML workflow 引擎的狀態面板：
+  - YAML 路徑設定輸入框（儲存到 SQLite，重啟後生效）；優先級 `WORKFLOW_FILE` env > 儲存路徑 > `app_data_dir/workflow.yaml`
+  - 顯示目前生效路徑 + 載入狀態（綠點=loaded / 紅點=parse error / 灰點=missing）
+  - YAML 內容預覽（`<pre>`）
+  - Workflow 啟動後每次 GitHub issue 符合 dispatch rule 就自動 spawn `claude -p`；spawn 的 run 會出現在對應 repo 的 One-Shot 分頁
 - **Home 分頁** — 自動 pre-check 本機路徑 + 拉 issues/PRs：
   - Repo 名 / 預設 branch / 本機路徑（不存在或非 git 倉時顯示徽章）/ 本機目前 branch（含 `clean` 或 `N changes` 徽章）
   - Open issues 列表（`#number`、title、彩色 label）
@@ -34,8 +39,9 @@ Tauri 2 + React 19 + TypeScript 桌面應用，把 GitHub repo 列表、open iss
 
 ### 後端（Rust / Tauri）
 
+- **PATH augmentation** — GUI 啟動的 app 繼承的 `PATH` 通常缺少 Homebrew / user local bins；`one_shot`、`terminal`、`workflow/command` 三處統一在執行子程序前 prepend `~/.local/bin:/opt/homebrew/bin:/usr/local/bin`，確保 `claude`、`gh` 等工具可找到
 - **SQLite 持久化**（`<app_data_dir>/agent-sweet-home.db`，migration 冪等）
-  - `settings` — 三項：GitHub 帳號、Token、Default Local Path
+  - `settings` — 四項：GitHub 帳號、Token、Default Local Path、workflow YAML 路徑
   - `repos` / `issues` / `prs` — 由 `fetch_*` Tauri commands write-through，HTTP API 直接讀快取，避開 GitHub rate limit
   - `one_shot_runs` / `one_shot_log_lines` — One-Shot 任務 metadata 與每行 stdout/stderr，`ON DELETE CASCADE` 一起刪
 - **GitHub API** — `reqwest` + bearer token；issues 過濾掉 PR、PRs 過濾已 merge
@@ -47,7 +53,8 @@ Tauri 2 + React 19 + TypeScript 桌面應用，把 GitHub repo 列表、open iss
 
 | Command                           | 說明                                                            |
 | --------------------------------- | --------------------------------------------------------------- |
-| `get_settings` / `save_settings`  | 讀 / 寫 SQLite 中的三欄設定                                     |
+| `get_settings` / `save_settings`  | 讀 / 寫 SQLite 中的設定（GitHub 帳號、Token、本機路徑）          |
+| `save_workflow_path`              | 單獨寫入 `workflow_path` 設定；重啟後 workflow 引擎使用新路徑     |
 | `fetch_repos`                     | 拉 GitHub repo 並 write-through 快取                            |
 | `fetch_issues` / `fetch_prs`      | 同上，鎖一個 `repoFullName`                                     |
 | `inspect_local_repo`              | 對 `{base}/{repoName}` 做本機探查（存在性 / git / branch / dirty） |
@@ -57,6 +64,7 @@ Tauri 2 + React 19 + TypeScript 桌面應用，把 GitHub repo 列表、open iss
 | `one_shot_get`                    | 單筆 metadata                                                    |
 | `one_shot_log`                    | 取 log lines；`sinceSeq` 給上次拿到的最大 seq 做增量 polling     |
 | `one_shot_kill`                   | 跑中 → kill；已結束 → 從 DB 刪掉 run + log lines                 |
+| `workflow_status`                 | 回目前 workflow 載入狀態 + YAML 內容（供 WorkflowView 顯示）     |
 
 ### Tauri Events（後端 → 前端）
 
@@ -82,6 +90,8 @@ Tauri 2 + React 19 + TypeScript 桌面應用，把 GitHub repo 列表、open iss
 | GET    | `/one-shot/{id}`          | 單筆 metadata（`RunInfo`，含 argv、status、cost…）                  |
 | GET    | `/one-shot/{id}/log`      | 該 run 的 log lines；`?since=<seq>` 增量 polling、`?limit=<n>`（預設 1000） |
 | DELETE | `/one-shot/{id}`          | 跑中 → 202 Accepted（送 SIGKILL）；已結束 → 204 No Content（DB 刪掉） |
+| GET    | `/workflow`               | 目前 workflow 載入狀態（`path`、`exists`、`loaded`、`error`）        |
+| POST   | `/workflow/path`          | 設定 workflow YAML 路徑（body: `{ "path": "..." }`）；重啟後生效     |
 
 #### `RunInfo`（GET /one-shot 等回傳）
 
@@ -193,6 +203,14 @@ curl -H "$H" "http://127.0.0.1:$PORT/one-shot?repo=alpha&status=running"
 
 # 6. Kill 或刪掉一個 run
 curl -X DELETE -H "$H" http://127.0.0.1:$PORT/one-shot/$RUN_ID
+
+# 7. 查 workflow 載入狀態
+curl -H "$H" http://127.0.0.1:$PORT/workflow
+
+# 8. 設定 workflow YAML 路徑（重啟後生效）
+curl -s -H "$H" -H 'content-type: application/json' \
+  -d '{"path":"/abs/path/to/workflow.yaml"}' \
+  http://127.0.0.1:$PORT/workflow/path
 ```
 
 ## 開發指令
@@ -244,20 +262,47 @@ src-tauri/src/            Rust 後端
 ├── terminal.rs           PTY Registry + pty_create/write/resize/kill/list/get commands
 ├── one_shot.rs           One-Shot Runner + build_argv + start_run + one_shot_* commands
 ├── http_server.rs        axum router + bearer token 認證 + /sessions + /one-shot/*
-└── workflow/             宣告式 workflow 引擎（YAML+Jinja2）— Phase 1.5：schema 完整、runtime 為 stub
+└── workflow/             宣告式 YAML workflow 引擎（完整 runtime）
+    ├── mod.rs            load() + start() + workflow_status Tauri command
     ├── spec.rs           全部 serde 結構（Workflow / EntryConfig / actions / control flow）
-    ├── dispatch.rs       純函式 dispatch(IssueState, [DispatchRule]) -> Directive
+    ├── dispatch.rs       純函式 dispatch(IssueSnapshot, [DispatchRule]) -> Directive
     ├── expr.rs           minijinja 包裝層（has_label / matches_label / 模板 render）
-    ├── result.rs         on_result + degrade + unblock_pass（Phase 2 todo!()）
-    ├── command.rs        {var} template render + spawn 子程序（spawn 部分 todo!()）
-    └── entry/            poll / webhook / manual 三種 issue 來源（皆 stub）
+    ├── runtime.rs        WorkflowRuntime — dispatch_one() 完整 pipeline（worktree → spawn → on_result）
+    ├── spawn.rs          build_run_args + run_spawn；橋接 one_shot::start_run
+    ├── result.rs         on_result + degrade + unblock_pass
+    ├── command.rs        {var} template render + run_capture / run_capture_full（含 PATH augment）
+    ├── worktree.rs       git worktree allocate / cleanup（write-isolation 用）
+    └── entry/            poll / webhook / manual 三種 entry mode（IssueSource trait）
 ```
 
 ## Workflow 引擎
 
-宣告式 YAML 引擎，把 `dispatcher.ts` + `orchestrator.ts` 的邏輯改用 YAML 表達。Phase 1.5 已完成 schema，可解析 agent-team v2 production workflow；runtime 為 stub。
+宣告式 YAML 引擎，在 app 啟動時自動載入 `workflow.yaml`，並以 poll / webhook / manual 三種 entry mode 持續掃描 GitHub issues；符合 `dispatch:` rule 的 issue 會被 `spawn_fresh` 到對應 role 的 `claude -p` 子程序。
 
-完整參考文件：[`WORKFLOW.md`](./WORKFLOW.md) — 為 AI agent 閱讀優化（schema 對照表、predicate atoms / actions / control flow 全表、gotchas、Phase 2 contract、test fixtures 索引）。
+### 執行流程
+
+```
+Entry (poll/webhook/manual)
+  → dispatch()          — 找第一條匹配 rule，取得 Directive
+  → pre_spawn checks    — abort / reroute 判斷
+  → worktree allocate   — 需要 write isolation 時 git worktree carve
+  → start_run()         — 以 one_shot 模組啟動 claude -p
+  → wait_until_done()   — 輪詢 DB row 直到 status ≠ "running"
+  → on_result / degrade — 解析結構化 JSON output，執行 GitHub 副作用
+  → worktree cleanup
+```
+
+### YAML 路徑優先級
+
+1. `WORKFLOW_FILE` 環境變數（最高）
+2. Settings → Workflow 分頁儲存的路徑（SQLite）
+3. `<app_data_dir>/workflow.yaml`（預設 fallback）
+
+### Spawn 與 One-Shot 整合
+
+Workflow 透過 `one_shot::start_run` 啟動 agent，run 記錄寫入同一張 `one_shot_runs` table，並正確綁定 `repo_id`（以 `full_name` 查找）。因此 workflow 自動觸發的 `claude -p` run 會出現在 UI 的 **One-Shot 分頁**，可查 log、kill、刪除，一如手動啟動的 run。
+
+完整參考文件：[`WORKFLOW.md`](./WORKFLOW.md) — 為 AI agent 閱讀優化（schema 對照表、predicate atoms / actions / control flow 全表、gotchas、test fixtures 索引）。
 
 ## 安全備註
 
