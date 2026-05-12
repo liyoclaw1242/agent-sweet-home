@@ -6,17 +6,19 @@ use crate::one_shot::{
     self, get_run_inner, list_log_lines_inner, list_runs_inner, LogLine, OneShotState, RunArgs,
     RunInfo,
 };
-use crate::settings::get_settings_inner;
+use crate::settings::{get_settings_inner, save_workflow_path_inner};
 use crate::terminal::{Registry, SessionInfo};
+use crate::workflow::WorkflowStatus;
 use axum::{
     extract::{Path, Query, State},
     http::{header::AUTHORIZATION, HeaderMap, StatusCode},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::Path as StdPath;
+use std::sync::{Arc, RwLock};
 use tauri::AppHandle;
 
 #[derive(Clone)]
@@ -29,6 +31,10 @@ pub struct ServerCtx {
     /// keep working against the shared SQLite Db.
     pub app_handle: Option<AppHandle>,
     pub token: String,
+    /// Shared workflow status — written by lib.rs after startup, read by
+    /// `GET /workflow`. `None` only in test contexts that don't exercise the
+    /// workflow endpoints.
+    pub workflow_status: Option<Arc<RwLock<WorkflowStatus>>>,
 }
 
 #[derive(Serialize)]
@@ -49,6 +55,8 @@ pub fn router(ctx: ServerCtx) -> Router {
         .route("/one-shot", get(list_one_shot).post(start_one_shot))
         .route("/one-shot/{id}", get(get_one_shot).delete(delete_one_shot))
         .route("/one-shot/{id}/log", get(get_one_shot_log))
+        .route("/workflow", get(get_workflow_status))
+        .route("/workflow/path", post(set_workflow_path))
         .with_state(ctx)
 }
 
@@ -254,6 +262,68 @@ async fn get_one_shot_log(
     Ok(Json(lines))
 }
 
+/// `GET /workflow` — returns the current workflow status.
+#[derive(Serialize)]
+struct WorkflowStatusResp {
+    path: String,
+    exists: bool,
+    loaded: bool,
+    error: Option<String>,
+}
+
+async fn get_workflow_status(
+    State(ctx): State<ServerCtx>,
+    headers: HeaderMap,
+) -> Result<Json<WorkflowStatusResp>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let wf = ctx
+        .workflow_status
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let s = wf.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(WorkflowStatusResp {
+        path: s.path.clone(),
+        exists: s.exists,
+        loaded: s.loaded,
+        error: s.error.clone(),
+    }))
+}
+
+/// `POST /workflow/path` — persists a new workflow_path to the settings table.
+/// The workflow engine does NOT hot-reload; a full app restart is required
+/// for the new path to take effect.
+#[derive(Deserialize)]
+struct SetWorkflowPathBody {
+    path: String,
+}
+
+#[derive(Serialize)]
+struct SetWorkflowPathResp {
+    ok: bool,
+    path: String,
+    note: &'static str,
+}
+
+async fn set_workflow_path(
+    State(ctx): State<ServerCtx>,
+    headers: HeaderMap,
+    Json(body): Json<SetWorkflowPathBody>,
+) -> Result<Json<SetWorkflowPathResp>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let conn = ctx
+        .db
+        .0
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    save_workflow_path_inner(&conn, &body.path)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(SetWorkflowPathResp {
+        ok: true,
+        path: body.path,
+        note: "Restart the app for the new workflow path to take effect.",
+    }))
+}
+
 async fn delete_one_shot(
     State(ctx): State<ServerCtx>,
     Path(id): Path<String>,
@@ -342,6 +412,7 @@ mod tests {
             one_shot: OneShotState::new(),
             app_handle: None,
             token: TOKEN.into(),
+            workflow_status: None,
         }
     }
 

@@ -9,6 +9,7 @@ pub struct Settings {
     pub github_username: String,
     pub github_token: String,
     pub local_base_path: String,
+    pub workflow_path: String,
 }
 
 pub fn get_settings_inner(conn: &Connection) -> rusqlite::Result<Settings> {
@@ -24,10 +25,20 @@ pub fn get_settings_inner(conn: &Connection) -> rusqlite::Result<Settings> {
             "github_username" => settings.github_username = v,
             "github_token" => settings.github_token = v,
             "local_base_path" => settings.local_base_path = v,
+            "workflow_path" => settings.workflow_path = v,
             _ => {}
         }
     }
     Ok(settings)
+}
+
+pub fn save_workflow_path_inner(conn: &Connection, path: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        params!["workflow_path", path],
+    )?;
+    Ok(())
 }
 
 pub fn save_settings_inner(
@@ -62,6 +73,12 @@ pub fn save_settings(
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     save_settings_inner(&conn, &github_username, &github_token, &local_base_path)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_workflow_path(db: State<'_, Db>, path: String) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    save_workflow_path_inner(&conn, &path).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -100,5 +117,20 @@ mod tests {
         let loaded = get_settings_inner(&conn).unwrap();
         assert_eq!(loaded.github_token, "new_token");
         assert_eq!(loaded.local_base_path, "/new");
+    }
+
+    #[test]
+    fn workflow_path_round_trips_independently_of_other_settings() {
+        let conn = fresh_conn();
+        save_settings_inner(&conn, "octocat", "ghp", "/p").unwrap();
+        save_workflow_path_inner(&conn, "/abs/wf.yaml").unwrap();
+        let loaded = get_settings_inner(&conn).unwrap();
+        assert_eq!(loaded.github_username, "octocat");
+        assert_eq!(loaded.workflow_path, "/abs/wf.yaml");
+
+        save_workflow_path_inner(&conn, "/abs/other.yaml").unwrap();
+        let loaded = get_settings_inner(&conn).unwrap();
+        assert_eq!(loaded.workflow_path, "/abs/other.yaml");
+        assert_eq!(loaded.github_username, "octocat");
     }
 }

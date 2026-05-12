@@ -36,6 +36,16 @@ pub fn run() {
             let one_shot_state = one_shot::OneShotState::new();
             app.manage(one_shot_state.clone());
 
+            // Shared workflow status — starts empty, written after workflow load.
+            // Shared between the HTTP server and the Tauri command.
+            let wf_status: Arc<std::sync::RwLock<workflow::WorkflowStatus>> =
+                Arc::new(std::sync::RwLock::new(workflow::WorkflowStatus {
+                    path: String::new(),
+                    exists: false,
+                    loaded: false,
+                    error: None,
+                }));
+
             // Spawn a localhost-only HTTP API for external CLIs / agents to query
             // the cached repo list and details. The auth token + port are written
             // to <app_data_dir>/server.json (0600 on unix).
@@ -46,6 +56,7 @@ pub fn run() {
                 one_shot: one_shot_state.clone(),
                 app_handle: Some(app.handle().clone()),
                 token,
+                workflow_status: Some(wf_status.clone()),
             };
             let server_app_dir = app_dir.clone();
             tauri::async_runtime::spawn(async move {
@@ -58,12 +69,24 @@ pub fn run() {
 
             // ---- Workflow runtime --------------------------------------
             //
-            // Look for `WORKFLOW_FILE` env var (override) or fall back to
-            // `<app_data_dir>/workflow.yaml`. If the file doesn't exist we
-            // log + skip — the rest of the app still works without a
-            // declarative workflow loaded.
+            // Resolve the workflow YAML path with a 3-tier priority:
+            //   1. WORKFLOW_FILE env var (highest — explicit per-launch override)
+            //   2. settings.workflow_path stored in the SQLite settings table
+            //      (set via the WorkflowView "Save path" input)
+            //   3. <app_data_dir>/workflow.yaml (lowest — convention fallback)
+            // If the resolved path doesn't exist we log + skip; the rest of
+            // the app still works without a declarative workflow loaded.
+            let db_workflow_path = {
+                let conn = db.0.lock().expect("db lock poisoned");
+                settings::get_settings_inner(&conn)
+                    .ok()
+                    .map(|s| s.workflow_path)
+                    .filter(|p| !p.is_empty())
+            };
             let workflow_path = std::env::var("WORKFLOW_FILE")
                 .ok()
+                .filter(|s| !s.is_empty())
+                .or(db_workflow_path)
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| app_dir.join("workflow.yaml"));
 
@@ -100,18 +123,24 @@ pub fn run() {
                     workflow_path.display()
                 );
             }
-            app.manage(workflow::WorkflowStatus {
+            // Write the resolved status into the shared Arc so the HTTP server
+            // can observe the same value via GET /workflow.
+            *wf_status.write().unwrap() = workflow::WorkflowStatus {
                 path: workflow_path.display().to_string(),
                 exists: wf_exists,
                 loaded: wf_loaded,
                 error: wf_error,
-            });
+            };
+            // Expose the Arc as Tauri-managed state (the workflow_status command
+            // reads through it).
+            app.manage(wf_status.clone());
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             settings::get_settings,
             settings::save_settings,
+            settings::save_workflow_path,
             github::fetch_repos,
             github::fetch_issues,
             github::fetch_prs,

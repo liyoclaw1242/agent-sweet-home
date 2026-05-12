@@ -128,3 +128,91 @@
   color: #57606a;
   margin: 0;
 }
+
+.workflow-path-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.workflow-path-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #57606a;
+}
+.workflow-path-row {
+  display: flex;
+  gap: 8px;
+}
+.workflow-path-input {
+  flex: 1;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: #ffffff;
+}
+.workflow-path-input:focus {
+  outline: 2px solid #0969da;
+  outline-offset: -1px;
+  border-color: transparent;
+}
+.workflow-path-save {
+  background: #1f883d;
+  color: #ffffff;
+  border: 1px solid rgba(31, 35, 40, 0.15);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.workflow-path-save:hover:not(:disabled) {
+  background: #1a7f37;
+}
+.workflow-path-save:disabled {
+  background: #94d3a2;
+  cursor: not-allowed;
+}
+.workflow-path-hint {
+  margin: 0;
+  font-size: 11px;
+  color: #57606a;
+}
+.workflow-path-hint code {
+  background: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 11px;
+}
+.workflow-path-saved {
+  margin: 0;
+  font-size: 12px;
+  color: #1a7f37;
+  font-weight: 500;
+}
+
+/* Status dot inline with "Applied path" label */
+.wf-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.wf-dot--ok {
+  background: #1a7f37;
+}
+.wf-dot--error {
+  background: #cf222e;
+}
+.wf-dot--missing {
+  background: #8c959f;
+}

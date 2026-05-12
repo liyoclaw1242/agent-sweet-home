@@ -199,14 +199,23 @@ impl WorkflowRuntime {
 
         // 4. Spawn `claude -p`, wait for completion, parse final structured
         //    output (None when the agent emitted no parseable JSON tail).
+        // Look up the real GitHub repo_id so UI one-shot filtering works.
+        let repo_id = {
+            let conn = self.db.0.lock().unwrap_or_else(|e| e.into_inner());
+            conn.query_row(
+                "SELECT id FROM repos WHERE full_name = ?1",
+                [&repo.repo],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+        };
+
         let spawn_req = SpawnRequest {
             role: &final_role,
             mode: final_mode.as_deref(),
             role_cfg,
             repo_full_name: &repo.repo,
-            // repo_id is best-effort: 0 is fine for the workflow runtime
-            // path because the DB row is keyed by run_id, not repo_id.
-            repo_id: 0,
+            repo_id,
             repo_path: spawn_cwd,
             workflow_dir: &self.workflow_dir,
             issue: &issue,

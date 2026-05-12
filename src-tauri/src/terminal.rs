@@ -172,8 +172,19 @@ pub fn pty_create(
     if let Some(home) = std::env::var_os("HOME") {
         cmd.env("HOME", home);
     }
-    if let Some(p) = std::env::var_os("PATH") {
-        cmd.env("PATH", p);
+    // Augment PATH so GUI-launched app can find binaries installed by
+    // Homebrew (~/.local/bin for Claude Code, /opt/homebrew/bin for brew).
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let extra = format!(
+            "{}/.local/bin:/opt/homebrew/bin:/usr/local/bin",
+            home
+        );
+        let path = match std::env::var("PATH") {
+            Ok(p) if !p.is_empty() => format!("{}:{}", extra, p),
+            _ => extra,
+        };
+        cmd.env("PATH", path);
     }
     cmd.env("TERM", "xterm-256color");
 

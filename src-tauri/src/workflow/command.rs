@@ -103,12 +103,23 @@ pub fn shell_quote(s: &str) -> String {
     out
 }
 
+/// Build an augmented PATH so GUI-launched app can find Homebrew + local bins.
+fn augmented_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let extra = format!("{}/.local/bin:/opt/homebrew/bin:/usr/local/bin", home);
+    match std::env::var("PATH") {
+        Ok(p) if !p.is_empty() => format!("{}:{}", extra, p),
+        _ => extra,
+    }
+}
+
 /// Run a rendered command via `sh -c`, capture stdout. Used by entry/
 /// `*_source` resolvers and by step actions that shell out (e.g. `gh`).
 pub fn run_capture(rendered: &str) -> Result<Vec<u8>, CommandError> {
     let output = std::process::Command::new("sh")
         .arg("-c")
         .arg(rendered)
+        .env("PATH", augmented_path())
         .output()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -137,6 +148,7 @@ pub fn run_capture_full(rendered: &str) -> Result<(i32, Vec<u8>, Vec<u8>), Comma
     let output = std::process::Command::new("sh")
         .arg("-c")
         .arg(rendered)
+        .env("PATH", augmented_path())
         .output()?;
     Ok((
         output.status.code().unwrap_or(-1),

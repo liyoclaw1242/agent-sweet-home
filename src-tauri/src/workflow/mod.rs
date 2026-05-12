@@ -23,7 +23,7 @@ pub mod spec;
 pub mod worktree;
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use serde::Serialize;
 use tauri::State;
@@ -54,18 +54,21 @@ pub struct WorkflowStatusResponse {
 
 #[tauri::command]
 pub fn workflow_status(
-    state: State<'_, WorkflowStatus>,
+    state: State<'_, Arc<RwLock<WorkflowStatus>>>,
 ) -> Result<WorkflowStatusResponse, String> {
-    let content = if state.exists {
-        std::fs::read_to_string(&state.path).ok()
+    let s = state
+        .read()
+        .map_err(|e| e.to_string())?;
+    let content = if s.exists {
+        std::fs::read_to_string(&s.path).ok()
     } else {
         None
     };
     Ok(WorkflowStatusResponse {
-        path: state.path.clone(),
-        exists: state.exists,
-        loaded: state.loaded,
-        error: state.error.clone(),
+        path: s.path.clone(),
+        exists: s.exists,
+        loaded: s.loaded,
+        error: s.error.clone(),
         content,
     })
 }
