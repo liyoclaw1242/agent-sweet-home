@@ -41,6 +41,9 @@ pub struct RunSummary {
     pub total_cost_usd: Option<f64>,
     pub event_count: i64,
     pub tool_call_count: i64,
+    /// Workflow role (e.g. "worker", "whitebox-validator") if this run was
+    /// dispatched by the workflow engine; None for manual one-shots.
+    pub agent_label: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -60,12 +63,15 @@ pub fn get_run_events(conn: &Connection, run_id: &str) -> rusqlite::Result<Vec<R
     query_run_events(conn, run_id)
 }
 
-/// Snapshot of all runs enriched with event/tool-call counts.
+/// Snapshot of all runs enriched with event/tool-call counts and, when
+/// dispatched by the workflow engine, the agent role from dispatch_log.
 pub fn get_graph_state(conn: &Connection) -> rusqlite::Result<GraphState> {
     let mut stmt = conn.prepare(
         "SELECT r.id, r.repo_name, r.status, r.started_at, r.ended_at, r.total_cost_usd,
                 COUNT(DISTINCT e.id) AS event_count,
-                COUNT(DISTINCT CASE WHEN e.event_type = 'tool_use' THEN e.id END) AS tool_call_count
+                COUNT(DISTINCT CASE WHEN e.event_type = 'tool_use' THEN e.id END) AS tool_call_count,
+                (SELECT d.directive_json FROM dispatch_log d WHERE d.run_id = r.id LIMIT 1) AS directive_json,
+                r.argv_json
          FROM one_shot_runs r
          LEFT JOIN run_events e ON e.run_id = r.id
          GROUP BY r.id
@@ -74,6 +80,18 @@ pub fn get_graph_state(conn: &Connection) -> rusqlite::Result<GraphState> {
     )?;
     let runs = stmt
         .query_map([], |row| {
+            let directive_json: Option<String> = row.get(8)?;
+            let argv_json: String = row.get(9)?;
+
+            // Priority 1: role from dispatch_log directive_json
+            let from_dispatch = directive_json.as_deref().and_then(|json| {
+                serde_json::from_str::<Value>(json).ok()
+                    .and_then(|v| v.get("role").and_then(|r| r.as_str()).map(String::from))
+            });
+
+            // Priority 2: parse --name from argv_json → extract role component
+            let agent_label = from_dispatch.or_else(|| role_from_argv(&argv_json));
+
             Ok(RunSummary {
                 run_id: row.get(0)?,
                 repo_name: row.get(1)?,
@@ -83,10 +101,33 @@ pub fn get_graph_state(conn: &Connection) -> rusqlite::Result<GraphState> {
                 total_cost_usd: row.get(5)?,
                 event_count: row.get(6)?,
                 tool_call_count: row.get(7)?,
+                agent_label,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(GraphState { runs })
+}
+
+/// Parse `--name {role}-{mode}-issue{N}` out of a JSON argv array and return
+/// the role component. Returns None for manual one-shots (no --name flag).
+fn role_from_argv(argv_json: &str) -> Option<String> {
+    let argv: Vec<String> = serde_json::from_str(argv_json).ok()?;
+    let pos = argv.iter().position(|a| a == "--name")?;
+    let name = argv.get(pos + 1)?;
+    // Strip trailing -issue{digits}
+    let without_issue = name.rsplit_once("-issue").and_then(|(prefix, suffix)| {
+        if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+            Some(prefix)
+        } else {
+            None
+        }
+    })?;
+    // Strip the mode (last hyphen-separated token, e.g. "-default")
+    let role = without_issue
+        .rsplit_once('-')
+        .map(|(r, _)| r)
+        .unwrap_or(without_issue);
+    if role.is_empty() { None } else { Some(role.to_string()) }
 }
 
 /// Idempotent: parse and store run_events for a finished stream-json run.
@@ -646,6 +687,12 @@ pub fn graph_state_cmd(db: State<'_, Db>) -> Result<GraphState, String> {
 pub fn graph_blocking_cmd(db: State<'_, Db>) -> Result<Vec<BlockingItem>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     get_blocking_graph(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn graph_run_events_cmd(run_id: String, db: State<'_, Db>) -> Result<Vec<RunEvent>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    get_run_events(&conn, &run_id).map_err(|e| e.to_string())
 }
 
 // ---- Tests --------------------------------------------------------------

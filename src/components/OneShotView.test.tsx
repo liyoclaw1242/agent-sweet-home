@@ -68,7 +68,7 @@ describe("OneShotView", () => {
       { shouldMockEvents: true },
     );
 
-    render(<OneShotView repo={repo} onCountChange={onCount} />);
+    render(<OneShotView repo={repo} selectedRunId={null} onCountChange={onCount} />);
 
     expect(await screen.findByText("alpha-1-aa")).toBeInTheDocument();
     expect(screen.getByText("alpha-2-bb")).toBeInTheDocument();
@@ -109,7 +109,7 @@ describe("OneShotView", () => {
     );
 
     const user = userEvent.setup();
-    render(<OneShotView repo={repo} />);
+    render(<OneShotView repo={repo} selectedRunId={null} />);
 
     await user.click(
       await screen.findByRole("button", { name: /new one-shot run/i }),
@@ -153,7 +153,7 @@ describe("OneShotView", () => {
     );
 
     const user = userEvent.setup();
-    render(<OneShotView repo={repo} />);
+    render(<OneShotView repo={repo} selectedRunId={null} />);
 
     await user.click(await screen.findByRole("button", { name: /run alpha-77-ee/i }));
 
@@ -186,7 +186,7 @@ describe("OneShotView", () => {
     );
 
     const user = userEvent.setup();
-    render(<OneShotView repo={repo} />);
+    render(<OneShotView repo={repo} selectedRunId={null} />);
     await user.click(
       await screen.findByRole("button", { name: /new one-shot run/i }),
     );

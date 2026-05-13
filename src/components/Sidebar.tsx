@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import "./Sidebar.css";
+import type { TabKey, RepoCounts } from "./Tabs";
 
 export interface Repo {
   id: number;
@@ -15,79 +14,161 @@ export interface Repo {
   updatedAt: string;
 }
 
-interface Props {
-  reloadKey: number;
-  selectedRepoId: number | null;
-  onSelect: (repo: Repo) => void;
+export interface SidebarSession {
+  id: string;
+  status: "running" | "frozen" | "exited";
+  meta: string;
 }
 
-export default function Sidebar({ reloadKey, selectedRepoId, onSelect }: Props) {
-  const [repos, setRepos] = useState<Repo[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+export interface SidebarRun {
+  id: string;
+  status: "running" | "completed" | "failed" | "killed";
+  role: string | null;
+}
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await invoke<Repo[]>("fetch_repos");
-      setRepos(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setRepos([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+interface Props {
+  activeTab: TabKey;
+  counts: RepoCounts;
+  disabled: boolean;
+  sessions: SidebarSession[];
+  runs: SidebarRun[];
+  selectedRunId?: string | null;
+  onChangeTab: (tab: TabKey) => void;
+  onSelectRun?: (id: string) => void;
+  onNewTerminal?: () => void;
+  onNewOneShot?: () => void;
+}
 
-  useEffect(() => {
-    void load();
-  }, [load, reloadKey]);
+type DotStatus = "run" | "ok" | "bad" | "zzz";
+
+function sessionDot(s: SidebarSession["status"]): DotStatus {
+  if (s === "running") return "run";
+  if (s === "frozen")  return "zzz";
+  return "ok";
+}
+
+function runDot(s: SidebarRun["status"]): DotStatus {
+  if (s === "running")   return "run";
+  if (s === "completed") return "ok";
+  if (s === "failed")    return "bad";
+  return "zzz";
+}
+
+function StatusDot({ kind }: { kind: DotStatus }) {
+  return <span className={`dot dot-${kind}`} />;
+}
+
+function roleCls(role: string): string {
+  const r = role.toLowerCase();
+  if (r.includes("whitebox"))  return "role-whitebox";
+  if (r.includes("blackbox"))  return "role-blackbox";
+  if (r.includes("validator")) return "role-validator";
+  if (r.includes("arbiter"))   return "role-arbiter";
+  return "role-worker";
+}
+
+function roleShort(role: string): string {
+  const map: Record<string, string> = {
+    worker: "worker", implementer: "worker",
+    "whitebox-validator": "whitebox", whitebox_validator: "whitebox",
+    "blackbox-validator": "blackbox", blackbox_validator: "blackbox",
+    validator: "valid", arbiter: "arbiter", dispatcher: "disp",
+  };
+  return map[role.toLowerCase()] ?? role.split(/[-_]/)[0];
+}
+
+export default function Sidebar({
+  activeTab,
+  counts,
+  disabled,
+  sessions,
+  runs,
+  selectedRunId,
+  onChangeTab,
+  onSelectRun,
+  onNewTerminal,
+  onNewOneShot,
+}: Props) {
+  function channel(tab: TabKey, label: string, dot?: DotStatus, meta?: string) {
+    const isActive = activeTab === tab;
+    return (
+      <button
+        key={`${tab}-${label}`}
+        type="button"
+        disabled={disabled}
+        className={`channel ${isActive ? "is-selected" : ""}`}
+        onClick={() => onChangeTab(tab)}
+      >
+        <div className="rail" />
+        <div className="dot-wrap">{dot && <StatusDot kind={dot} />}</div>
+        <span className="label">{label}</span>
+        {meta && <span className="meta">{meta}</span>}
+      </button>
+    );
+  }
+
+  function runChannel(r: SidebarRun) {
+    const isActive = activeTab === "one-shot" && r.id === selectedRunId;
+    return (
+      <button
+        key={r.id}
+        type="button"
+        disabled={disabled}
+        className={`channel ${isActive ? "is-selected" : ""}`}
+        onClick={() => { onChangeTab("one-shot"); onSelectRun?.(r.id); }}
+      >
+        <div className="rail" />
+        <div className="dot-wrap"><StatusDot kind={runDot(r.status)} /></div>
+        <span className="label">{r.id}</span>
+        {r.role && (
+          <span className={`sidebar-role-tag ${roleCls(r.role)}`}>
+            {roleShort(r.role)}
+          </span>
+        )}
+      </button>
+    );
+  }
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <h2>Repositories</h2>
-        <button
-          type="button"
-          onClick={load}
-          disabled={loading}
-          aria-label="Refresh repositories"
-          title="Refresh"
-        >
-          ↻
-        </button>
+
+      {/* DETAIL */}
+      <div className="sidebar-section">
+        <div className="sidebar-section-header">
+          <span className="title">Detail</span>
+        </div>
+        {channel("info", "info")}
+        {channel("flow", "flow")}
       </div>
-      {loading && <p className="sidebar-status">Loading…</p>}
-      {error && !loading && <p className="sidebar-status sidebar-error">{error}</p>}
-      {!loading && !error && repos.length === 0 && (
-        <p className="sidebar-status">No repositories yet.</p>
-      )}
-      <ul className="repo-list">
-        {repos.map((r) => {
-          const isSelected = selectedRepoId === r.id;
-          return (
-            <li
-              key={r.id}
-              className={`repo-item ${isSelected ? "is-selected" : ""}`}
-            >
-              <button
-                type="button"
-                className="repo-button"
-                onClick={() => onSelect(r)}
-                aria-current={isSelected ? "page" : undefined}
-                title={r.fullName}
-              >
-                <span className="repo-name">
-                  {r.name}
-                  {r.private && <span className="repo-badge">private</span>}
-                </span>
-                {r.language && <span className="repo-lang">{r.language}</span>}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+
+      {/* PERSISTENT */}
+      <div className="sidebar-section">
+        <div className="sidebar-section-header">
+          <span className="title">Persistent</span>
+          {counts.persistent > 0 && (
+            <span className="section-count">{counts.persistent}</span>
+          )}
+          <button type="button" className="add" onClick={onNewTerminal} disabled={disabled} title="New terminal">+</button>
+        </div>
+        {sessions.length === 0
+          ? channel("persistent", "no sessions")
+          : sessions.map((s) => channel("persistent", s.id, sessionDot(s.status), s.meta))}
+      </div>
+
+      {/* ONE-SHOT */}
+      <div className="sidebar-section">
+        <div className="sidebar-section-header">
+          <span className="title">One-shot</span>
+          {counts.oneShot > 0 && (
+            <span className="section-count">{counts.oneShot}</span>
+          )}
+          <button type="button" className="add" onClick={onNewOneShot} disabled={disabled} title="New one-shot run">+</button>
+        </div>
+        {runs.length === 0
+          ? channel("one-shot", "no runs")
+          : runs.map((r) => runChannel(r))}
+      </div>
+
     </aside>
   );
 }

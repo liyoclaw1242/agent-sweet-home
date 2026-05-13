@@ -1,20 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Repo } from "./Sidebar";
+import type { Repo, SidebarRun } from "./Sidebar";
 import OneShotModal, { type RunArgs } from "./OneShotModal";
 import "./OneShotView.css";
-
-interface LocalInspection {
-  configuredBasePath: string;
-  repoPath: string;
-  exists: boolean;
-  isGitRepo: boolean;
-  currentBranch: string | null;
-  isClean: boolean | null;
-  dirtyFiles: number | null;
-  error: string | null;
-}
 
 interface RunInfo {
   id: string;
@@ -39,63 +29,275 @@ interface LogLine {
   text: string;
 }
 
-interface Props {
-  repo: Repo;
-  onCountChange?: (count: number) => void;
+// ── stream-json parsing ───────────────────────────────────────────────────────
+
+type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string }
+  | { type: "tool_use"; id: string; name: string; input: unknown }
+  | { type: "tool_result"; tool_use_id: string; content: unknown; is_error?: boolean };
+
+type ClaudeEvent = {
+  type: string;
+  message?: { role: string; content: ContentBlock[] };
+  result?: string;
+  total_cost_usd?: number;
+  is_error?: boolean;
+};
+
+type ChatMsg =
+  | { kind: "user-prompt";  text: string;   ts: number; seq: number }
+  | { kind: "thinking";     text: string;   ts: number; seq: number }
+  | { kind: "assistant";    text: string;   ts: number; seq: number }
+  | { kind: "tool-call";   id: string; name: string; input: unknown; ts: number; seq: number }
+  | { kind: "tool-result"; toolId: string; isError: boolean; content: string; ts: number; seq: number }
+  | { kind: "result";      text: string; cost: number | null; isError: boolean; ts: number; seq: number }
+  | { kind: "stderr";      text: string;   ts: number; seq: number }
+  | { kind: "raw";         text: string;   ts: number; seq: number };
+
+function extractResultContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((b) => {
+        if (typeof b === "object" && b !== null && "type" in b) {
+          const block = b as { type: string; text?: string };
+          return block.type === "text" ? (block.text ?? "") : JSON.stringify(b, null, 2);
+        }
+        return JSON.stringify(b);
+      })
+      .join("\n");
+  }
+  return JSON.stringify(content, null, 2);
 }
 
-function statusClass(s: RunInfo["status"]): string {
+function parseLines(lines: LogLine[]): ChatMsg[] {
+  const msgs: ChatMsg[] = [];
+
+  for (const line of lines) {
+    if (!line.text.trim()) continue;
+
+    if (line.stream === "stderr") {
+      msgs.push({ kind: "stderr", text: line.text, ts: line.ts, seq: line.seq });
+      continue;
+    }
+
+    try {
+      const ev = JSON.parse(line.text) as ClaudeEvent;
+
+      if (ev.type === "user" && ev.message) {
+        for (const block of ev.message.content) {
+          if (block.type === "text") {
+            msgs.push({ kind: "user-prompt", text: block.text, ts: line.ts, seq: line.seq });
+          } else if (block.type === "tool_result") {
+            msgs.push({
+              kind: "tool-result",
+              toolId: block.tool_use_id,
+              isError: block.is_error ?? false,
+              content: extractResultContent(block.content),
+              ts: line.ts,
+              seq: line.seq,
+            });
+          }
+        }
+      } else if (ev.type === "assistant" && ev.message) {
+        for (const block of ev.message.content) {
+          if (block.type === "thinking") {
+            msgs.push({ kind: "thinking", text: block.thinking, ts: line.ts, seq: line.seq });
+          } else if (block.type === "text") {
+            msgs.push({ kind: "assistant", text: block.text, ts: line.ts, seq: line.seq });
+          } else if (block.type === "tool_use") {
+            msgs.push({ kind: "tool-call", id: block.id, name: block.name, input: block.input, ts: line.ts, seq: line.seq });
+          }
+        }
+      } else if (ev.type === "result") {
+        msgs.push({
+          kind: "result",
+          text: ev.result ?? "",
+          cost: ev.total_cost_usd ?? null,
+          isError: ev.is_error ?? false,
+          ts: line.ts,
+          seq: line.seq,
+        });
+      }
+      // type === "system" (init) — skip
+    } catch {
+      msgs.push({ kind: "raw", text: line.text, ts: line.ts, seq: line.seq });
+    }
+  }
+
+  return msgs;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function roleFromArgv(argv: string[]): string | null {
+  const idx = argv.indexOf("--name");
+  if (idx === -1) return null;
+  const name = argv[idx + 1];
+  if (!name) return null;
+  // Format: {role}-{mode}-issue{N}
+  const withoutIssue = name.replace(/-issue\d+$/, "");
+  const role = withoutIssue.replace(/-[^-]+$/, "");
+  return role || null;
+}
+
+function statusClass(s: RunInfo["status"]) {
   return `status-badge status-${s}`;
 }
 
-function shortPrompt(p: string): string {
-  return p.length > 100 ? `${p.slice(0, 100)}…` : p;
+function fmtTs(ts: number) {
+  if (!ts) return "";
+  return new Date(ts * 1000).toLocaleTimeString([], {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
 }
 
-function formatTime(ts: number): string {
-  if (!ts) return "—";
-  return new Date(ts * 1000).toLocaleTimeString();
+// ── Chat renderers ────────────────────────────────────────────────────────────
+
+function ThinkingBubble({ text, ts }: { text: string; ts: number }) {
+  return (
+    <div className="chat-row thinking-row">
+      <details className="thinking-block">
+        <summary className="thinking-summary">
+          <span className="thinking-label">thinking</span>
+          <span className="thinking-len">{text.length.toLocaleString()} chars</span>
+          <span className="bubble-ts">{fmtTs(ts)}</span>
+        </summary>
+        <pre className="thinking-body">{text}</pre>
+      </details>
+    </div>
+  );
 }
 
-export default function OneShotView({ repo, onCountChange }: Props) {
+function UserBubble({ text, ts }: { text: string; ts: number }) {
+  return (
+    <div className="chat-row user-row">
+      <div className="chat-bubble user-bubble">
+        <pre className="bubble-text">{text}</pre>
+        <span className="bubble-ts">{fmtTs(ts)}</span>
+      </div>
+    </div>
+  );
+}
+
+function AssistantBubble({ text, ts }: { text: string; ts: number }) {
+  return (
+    <div className="chat-row assistant-row">
+      <div className="chat-sender-label">Claude</div>
+      <div className="chat-bubble assistant-bubble">
+        <pre className="bubble-text">{text}</pre>
+        <span className="bubble-ts">{fmtTs(ts)}</span>
+      </div>
+    </div>
+  );
+}
+
+function ToolCallBlock({ name, input, ts }: { name: string; input: unknown; ts: number }) {
+  return (
+    <div className="chat-row tool-row">
+      <details className="tool-block">
+        <summary className="tool-head">
+          <span className="tool-chevron" aria-hidden>▶</span>
+          <span className="tool-name">{name}</span>
+          <span className="tool-ts">{fmtTs(ts)}</span>
+        </summary>
+        <pre className="tool-body">{JSON.stringify(input, null, 2)}</pre>
+      </details>
+    </div>
+  );
+}
+
+function ToolResultBlock({ toolId, content, isError, ts }: { toolId: string; content: string; isError: boolean; ts: number }) {
+  return (
+    <div className="chat-row tool-row tool-result-row">
+      <details className="tool-block tool-result-block">
+        <summary className="tool-head">
+          <span className="tool-chevron" aria-hidden>▶</span>
+          <span className={`tool-result-label${isError ? " is-error" : ""}`}>
+            {isError ? "error" : "result"}
+          </span>
+          <span className="tool-id">…{toolId.slice(-8)}</span>
+          <span className="tool-ts">{fmtTs(ts)}</span>
+        </summary>
+        <pre className="tool-body">{content}</pre>
+      </details>
+    </div>
+  );
+}
+
+function ResultBar({ text, cost, isError }: { text: string; cost: number | null; isError: boolean }) {
+  return (
+    <div className={`result-bar${isError ? " is-error" : ""}`}>
+      <span className="result-status">{isError ? "failed" : "completed"}</span>
+      {cost !== null && <span className="result-cost">${cost.toFixed(4)}</span>}
+      {text.trim() && (
+        <span className="result-text">{text.length > 280 ? `${text.slice(0, 280)}…` : text}</span>
+      )}
+    </div>
+  );
+}
+
+// ── Props ─────────────────────────────────────────────────────────────────────
+
+interface Props {
+  repo: Repo;
+  selectedRunId: string | null;
+  onCountChange?: (count: number) => void;
+  onRunsChange?: (runs: SidebarRun[]) => void;
+  onRunCreated?: (id: string) => void;
+  newOneShotRef?: React.MutableRefObject<(() => void) | null>;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export default function OneShotView({
+  repo,
+  selectedRunId,
+  onCountChange,
+  onRunsChange,
+  onRunCreated,
+  newOneShotRef,
+}: Props) {
   const [runs, setRuns] = useState<RunInfo[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
   const [lines, setLines] = useState<LogLine[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+
   const onCountRef = useRef(onCountChange);
   onCountRef.current = onCountChange;
+  const onRunsChangeRef = useRef(onRunsChange);
+  onRunsChangeRef.current = onRunsChange;
 
   const loadRuns = useCallback(async () => {
     try {
-      const list = await invoke<RunInfo[]>("one_shot_list", {
-        args: { repoId: repo.id },
-      });
+      const list = await invoke<RunInfo[]>("one_shot_list", { args: { repoId: repo.id } });
       setRuns(list ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [repo.id]);
 
-  useEffect(() => {
-    void loadRuns();
-  }, [loadRuns]);
+  useEffect(() => { void loadRuns(); }, [loadRuns]);
 
-  const runningCount = useMemo(
-    () => runs.filter((r) => r.status === "running").length,
-    [runs],
-  );
+  const runningCount = useMemo(() => runs.filter((r) => r.status === "running").length, [runs]);
+
   useEffect(() => {
     onCountRef.current?.(runningCount);
-  }, [runningCount]);
+    onRunsChangeRef.current?.(
+      runs.map((r) => ({
+        id: r.id,
+        status: r.status,
+        role: roleFromArgv(r.argv),
+      })),
+    );
+  }, [runs, runningCount]);
 
-  // Stream the active run's log via the Tauri event channel and seed it
-  // with whatever already landed in SQLite before we attached.
+  // Stream log for selected run
   useEffect(() => {
-    if (!activeId) {
-      setLines([]);
-      return;
-    }
+    if (!selectedRunId) { setLines([]); return; }
     let unlistenLine: UnlistenFn | null = null;
     let unlistenExit: UnlistenFn | null = null;
     let cancelled = false;
@@ -103,193 +305,138 @@ export default function OneShotView({ repo, onCountChange }: Props) {
     void (async () => {
       try {
         const initial = await invoke<LogLine[]>("one_shot_log", {
-          args: { id: activeId, sinceSeq: -1, limit: 5000 },
+          args: { id: selectedRunId, sinceSeq: -1, limit: 5000 },
         });
         if (cancelled) return;
         setLines(initial ?? []);
       } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e));
-        }
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
-      const ul = await listen<LogLine>(`oneshot:line:${activeId}`, (event) => {
-        const ll = event.payload;
+
+      const ul = await listen<LogLine>(`oneshot:line:${selectedRunId}`, (ev) => {
+        const ll = ev.payload;
         setLines((prev) => {
-          if (prev.length > 0 && prev[prev.length - 1].seq >= ll.seq) {
-            return prev;
-          }
+          if (prev.length > 0 && prev[prev.length - 1].seq >= ll.seq) return prev;
           return [...prev, ll];
         });
       });
-      const ux = await listen<{ exitCode: number; status: string }>(
-        `oneshot:exit:${activeId}`,
-        () => {
-          void loadRuns();
-        },
-      );
-      if (cancelled) {
-        ul();
-        ux();
-      } else {
-        unlistenLine = ul;
-        unlistenExit = ux;
-      }
+      const ux = await listen<unknown>(`oneshot:exit:${selectedRunId}`, () => { void loadRuns(); });
+      if (cancelled) { ul(); ux(); } else { unlistenLine = ul; unlistenExit = ux; }
     })();
 
-    return () => {
-      cancelled = true;
-      unlistenLine?.();
-      unlistenExit?.();
-    };
-  }, [activeId, loadRuns]);
+    return () => { cancelled = true; unlistenLine?.(); unlistenExit?.(); };
+  }, [selectedRunId, loadRuns]);
 
-  const handleStart = useCallback(
-    async (raw: RunArgs) => {
-      const inspection = await invoke<LocalInspection>("inspect_local_repo", {
-        repoName: repo.name,
-      });
-      if (!inspection.exists) {
-        throw new Error(`Local path not found: ${inspection.repoPath}`);
-      }
-      const args: RunArgs = { ...raw, cwd: inspection.repoPath };
-      const created = await invoke<RunInfo>("one_shot_start", { args });
-      setRuns((prev) => [created, ...prev]);
-      setActiveId(created.id);
-    },
-    [repo.name],
-  );
+  // Auto-scroll to bottom while at bottom
+  useEffect(() => {
+    const el = feedRef.current;
+    if (!el || !atBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [lines]);
 
-  const handleKill = useCallback(
-    async (id: string) => {
+  useEffect(() => {
+    if (newOneShotRef) {
+      newOneShotRef.current = () => setShowModal(true);
+      return () => { newOneShotRef.current = null; };
+    }
+  }, [newOneShotRef]);
+
+  const handleStart = useCallback(async (raw: RunArgs) => {
+    const inspection = await invoke<{ exists: boolean; repoPath: string }>(
+      "inspect_local_repo", { repoName: repo.name },
+    );
+    if (!inspection.exists) throw new Error(`Local path not found: ${inspection.repoPath}`);
+    const created = await invoke<RunInfo>("one_shot_start", { args: { ...raw, cwd: inspection.repoPath } });
+    setRuns((prev) => [created, ...prev]);
+    onRunCreated?.(created.id);
+  }, [repo.name, onRunCreated]);
+
+  const handleKill = useCallback(async (id: string) => {
+    try { await invoke("one_shot_kill", { id }); } catch { /* already gone */ }
+    await loadRuns();
+    if (selectedRunId === id) {
       try {
-        await invoke("one_shot_kill", { id });
-      } catch {
-        // ignore — likely already gone
-      }
-      await loadRuns();
-      if (activeId === id) {
-        // Refresh the displayed log from DB after the [killed by user] line.
-        try {
-          const refreshed = await invoke<LogLine[]>("one_shot_log", {
-            args: { id, sinceSeq: -1, limit: 5000 },
-          });
-          setLines(refreshed ?? []);
-        } catch {
-          // ignore
-        }
-      }
-    },
-    [activeId, loadRuns],
-  );
+        const refreshed = await invoke<LogLine[]>("one_shot_log", {
+          args: { id, sinceSeq: -1, limit: 5000 },
+        });
+        setLines(refreshed ?? []);
+      } catch { /* ignore */ }
+    }
+  }, [selectedRunId, loadRuns]);
 
   const activeRun = useMemo(
-    () => runs.find((r) => r.id === activeId) ?? null,
-    [runs, activeId],
+    () => (selectedRunId ? (runs.find((r) => r.id === selectedRunId) ?? null) : null),
+    [runs, selectedRunId],
   );
 
-  return (
-    <section className="oneshot" aria-label="One-shot runs">
-      <aside className="oneshot-list" aria-label="Run list">
-        <div className="oneshot-list-header">
-          <h3>{repo.name}</h3>
-          <button
-            type="button"
-            className="oneshot-new-btn"
-            onClick={() => setShowModal(true)}
-            aria-label="New one-shot run"
-          >
-            + New run
-          </button>
-        </div>
-        {error && <div className="oneshot-modal-error">{error}</div>}
-        {runs.length === 0 ? (
-          <p className="oneshot-detail-empty">No runs yet.</p>
-        ) : (
-          <ul className="oneshot-runs">
-            {runs.map((r) => (
-              <li key={r.id}>
-                <button
-                  type="button"
-                  className={`oneshot-run-button ${
-                    activeId === r.id ? "is-active" : ""
-                  }`}
-                  onClick={() => setActiveId(r.id)}
-                  aria-label={`Run ${r.id}`}
-                >
-                  <span className="oneshot-run-id">{r.id}</span>
-                  <span className="oneshot-run-prompt">
-                    {shortPrompt(r.prompt) || <em>(no prompt — resumed)</em>}
-                  </span>
-                  <span className="oneshot-run-meta">
-                    <span className={statusClass(r.status)}>{r.status}</span>
-                    <span>{formatTime(r.startedAt)}</span>
-                    {r.totalCostUsd != null && (
-                      <span>${r.totalCostUsd.toFixed(4)}</span>
-                    )}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </aside>
+  const chatMsgs = useMemo(() => parseLines(lines), [lines]);
 
-      <article className="oneshot-detail" aria-label="Run detail">
+  function handleScroll() {
+    const el = feedRef.current;
+    if (!el) return;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  }
+
+  return (
+    <section className="oneshot-chat">
+      <header className="oneshot-chat-header">
         {activeRun ? (
           <>
-            <header className="oneshot-detail-header">
-              <div className="grow">
-                <div className="oneshot-run-id">{activeRun.id}</div>
-                <div className="oneshot-detail-cmd" title={activeRun.argv.join(" ")}>
-                  {activeRun.argv.join(" ")}
-                </div>
-              </div>
-              <span className={statusClass(activeRun.status)}>
-                {activeRun.status}
+            <div className="chat-hdr-meta">
+              <span className="chat-run-id">{activeRun.id}</span>
+              <span className="chat-run-cmd" title={activeRun.argv.join(" ")}>
+                {activeRun.argv.join(" ")}
               </span>
-              {activeRun.status === "running" ? (
-                <button
-                  type="button"
-                  onClick={() => handleKill(activeRun.id)}
-                  aria-label={`Kill ${activeRun.id}`}
-                >
-                  Kill
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => handleKill(activeRun.id)}
-                  aria-label={`Delete ${activeRun.id}`}
-                >
-                  Delete
-                </button>
-              )}
-            </header>
-            <div className="oneshot-log" aria-label="Log output">
-              {lines.length === 0 ? (
-                <p className="oneshot-detail-empty">
-                  Waiting for output…
-                </p>
-              ) : (
-                lines.map((l) => (
-                  <div
-                    key={l.seq}
-                    className={`oneshot-log-line ${
-                      l.stream === "stderr" ? "is-stderr" : ""
-                    }`}
-                  >
-                    {l.text}
-                  </div>
-                ))
-              )}
             </div>
+            <span className={statusClass(activeRun.status)}>{activeRun.status}</span>
+            {activeRun.totalCostUsd != null && (
+              <span className="chat-cost">${activeRun.totalCostUsd.toFixed(4)}</span>
+            )}
+            <button
+              type="button"
+              className="chat-action-btn"
+              onClick={() => handleKill(activeRun.id)}
+            >
+              {activeRun.status === "running" ? "Kill" : "Delete"}
+            </button>
           </>
         ) : (
-          <div className="oneshot-detail-empty">
-            Select a run on the left, or start a new one.
-          </div>
+          <span className="chat-hdr-empty">Select a run from the sidebar</span>
         )}
-      </article>
+      </header>
+
+      <div className="oneshot-feed" ref={feedRef} onScroll={handleScroll}>
+        {!selectedRunId && (
+          <div className="chat-empty">No run selected.</div>
+        )}
+        {selectedRunId && chatMsgs.length === 0 && (
+          <div className="chat-empty">Waiting for output…</div>
+        )}
+
+        {chatMsgs.map((msg) => {
+          const key = `${msg.kind}-${msg.seq}`;
+          switch (msg.kind) {
+            case "thinking":
+              return <ThinkingBubble key={key} text={msg.text} ts={msg.ts} />;
+            case "user-prompt":
+              return <UserBubble   key={key} text={msg.text} ts={msg.ts} />;
+            case "assistant":
+              return <AssistantBubble key={key} text={msg.text} ts={msg.ts} />;
+            case "tool-call":
+              return <ToolCallBlock key={key} name={msg.name} input={msg.input} ts={msg.ts} />;
+            case "tool-result":
+              return <ToolResultBlock key={key} toolId={msg.toolId} content={msg.content} isError={msg.isError} ts={msg.ts} />;
+            case "result":
+              return <ResultBar key={key} text={msg.text} cost={msg.cost} isError={msg.isError} />;
+            case "stderr":
+              return <div key={key} className="chat-stderr">{msg.text}</div>;
+            case "raw":
+              return <div key={key} className="chat-raw">{msg.text}</div>;
+          }
+        })}
+      </div>
+
+      {error && <div className="oneshot-error-bar">{error}</div>}
 
       {showModal && (
         <OneShotModal

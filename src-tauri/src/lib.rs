@@ -176,6 +176,7 @@ pub fn run() {
             workflow::workflow_status,
             graph::graph_state_cmd,
             graph::graph_blocking_cmd,
+            graph::graph_run_events_cmd,
             workflow_set_running,
             workflow_is_running,
             settings::workflow_get_repo_active,
