@@ -1,5 +1,6 @@
 mod cache;
 mod db;
+pub mod graph;
 mod github;
 mod http_server;
 mod local_repo;
@@ -12,9 +13,25 @@ use std::sync::Arc;
 use tauri::Manager;
 
 /// Holds the watch sender that, when set to `true`, asks every entry-mode
-/// driver to drain in-flight dispatches and exit cleanly. Persisted as
-/// Tauri-managed state so a future `workflow_stop` command can flip it.
+/// driver to drain in-flight dispatches and exit cleanly.
 struct WorkflowShutdown(tokio::sync::watch::Sender<bool>);
+
+/// Pauses the poll loop without killing it. `true` = paused, `false` = running.
+pub struct WorkflowPause(pub Arc<std::sync::atomic::AtomicBool>);
+
+#[tauri::command]
+fn workflow_set_running(
+    pause: tauri::State<'_, WorkflowPause>,
+    running: bool,
+) -> bool {
+    pause.0.store(!running, std::sync::atomic::Ordering::Relaxed);
+    running
+}
+
+#[tauri::command]
+fn workflow_is_running(pause: tauri::State<'_, WorkflowPause>) -> bool {
+    !pause.0.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -90,6 +107,10 @@ pub fn run() {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| app_dir.join("workflow.yaml"));
 
+            // Pause flag shared between the poll loop and the toggle command.
+            let pause_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            app.manage(WorkflowPause(pause_flag.clone()));
+
             let mut wf_loaded = false;
             let mut wf_error: Option<String> = None;
             let wf_exists = workflow_path.exists();
@@ -103,11 +124,9 @@ pub fn run() {
                             db.clone(),
                             one_shot_state.clone(),
                         ));
-                        // Channel held in app state so a future Tauri
-                        // command (`workflow_stop`) can flip it on demand.
                         let (tx, rx) = tokio::sync::watch::channel(false);
                         app.manage(WorkflowShutdown(tx));
-                        let _handles = workflow::start(runtime, rx);
+                        let _handles = workflow::start(runtime, rx, pause_flag.clone());
                         eprintln!("workflow: loaded {}", workflow_path.display());
                         wf_loaded = true;
                     }
@@ -123,8 +142,6 @@ pub fn run() {
                     workflow_path.display()
                 );
             }
-            // Write the resolved status into the shared Arc so the HTTP server
-            // can observe the same value via GET /workflow.
             *wf_status.write().unwrap() = workflow::WorkflowStatus {
                 path: workflow_path.display().to_string(),
                 exists: wf_exists,
@@ -157,6 +174,12 @@ pub fn run() {
             one_shot::one_shot_log,
             one_shot::one_shot_kill,
             workflow::workflow_status,
+            graph::graph_state_cmd,
+            graph::graph_blocking_cmd,
+            workflow_set_running,
+            workflow_is_running,
+            settings::workflow_get_repo_active,
+            settings::workflow_set_repo_active,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -57,6 +57,11 @@ pub fn router(ctx: ServerCtx) -> Router {
         .route("/one-shot/{id}/log", get(get_one_shot_log))
         .route("/workflow", get(get_workflow_status))
         .route("/workflow/path", post(set_workflow_path))
+        .route("/graph/state", get(graph_state))
+        .route("/graph/runs/{id}/decisions", get(graph_run_decisions))
+        .route("/graph/issues/{n}/why", get(graph_issue_why))
+        .route("/graph/issues/{n}/trace", get(graph_issue_trace))
+        .route("/graph/blocking", get(graph_blocking))
         .with_state(ctx)
 }
 
@@ -360,6 +365,89 @@ async fn delete_one_shot(
     } else {
         Ok(StatusCode::NO_CONTENT)
     }
+}
+
+#[derive(Deserialize)]
+struct IssueGraphQuery {
+    repo: String,
+}
+
+async fn graph_blocking(
+    State(ctx): State<ServerCtx>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<crate::graph::BlockingItem>>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let conn = ctx
+        .db
+        .0
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    crate::graph::get_blocking_graph(&conn)
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn graph_issue_why(
+    State(ctx): State<ServerCtx>,
+    Path(n): Path<i64>,
+    Query(q): Query<IssueGraphQuery>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<crate::graph::DispatchEntry>>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let conn = ctx
+        .db
+        .0
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    crate::graph::get_dispatch_log(&conn, &q.repo, n)
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn graph_issue_trace(
+    State(ctx): State<ServerCtx>,
+    Path(n): Path<i64>,
+    Query(q): Query<IssueGraphQuery>,
+    headers: HeaderMap,
+) -> Result<Json<crate::graph::IssueTrace>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let conn = ctx
+        .db
+        .0
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    crate::graph::get_issue_trace(&conn, &q.repo, n)
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn graph_state(
+    State(ctx): State<ServerCtx>,
+    headers: HeaderMap,
+) -> Result<Json<crate::graph::GraphState>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let conn = ctx
+        .db
+        .0
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    crate::graph::get_graph_state(&conn).map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn graph_run_decisions(
+    State(ctx): State<ServerCtx>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<crate::graph::RunEvent>>, StatusCode> {
+    auth(&ctx, &headers)?;
+    let conn = ctx
+        .db
+        .0
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    crate::graph::get_run_events(&conn, &id)
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 #[cfg(test)]

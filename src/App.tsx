@@ -7,15 +7,16 @@ import HomeView from "./components/HomeView";
 import PersistentView from "./components/PersistentView";
 import OneShotView from "./components/OneShotView";
 import WorkflowView from "./components/WorkflowView";
+import GraphView from "./components/GraphView";
 import "./App.css";
 
-const ZERO_COUNTS: RepoCounts = { persistent: 0, oneShot: 0, cron: 0, workflow: 0 };
+const ZERO_COUNTS: RepoCounts = { persistent: 0, oneShot: 0, graph: 0, workflow: 0 };
 
 const TAB_LABELS: Record<TabKey, string> = {
   home: "Home",
   persistent: "Persistent",
   "one-shot": "One-Shot",
-  cron: "Cron",
+  graph: "Graph",
   workflow: "Workflow",
 };
 
@@ -111,8 +112,11 @@ function RepoView({
   if (tab === "one-shot") {
     return <OneShotView repo={repo} onCountChange={onOneShotCount} />;
   }
+  if (tab === "graph") {
+    return <GraphView />;
+  }
   if (tab === "workflow") {
-    return <WorkflowView />;
+    return <WorkflowView repo={repo} />;
   }
   return (
     <div>

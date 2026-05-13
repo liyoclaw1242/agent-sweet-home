@@ -17,7 +17,7 @@ use tauri::AppHandle;
 use crate::db::Db;
 use crate::one_shot::OneShotState;
 use crate::workflow::command::{run_capture, shell_quote};
-use crate::workflow::dispatch::{dispatch, DispatchError};
+use crate::workflow::dispatch::{dispatch_with_index, DispatchError};
 use crate::workflow::entry::RepoRef;
 use crate::workflow::expr::{ExprContext, ExprEngine, IssueSnapshot};
 use crate::workflow::result::{
@@ -97,6 +97,18 @@ impl WorkflowRuntime {
             &issue,
         );
 
+        // 0a. Sync blocked_by edges for this issue's deps marker so the
+        //     graph blocking endpoint always reflects current deps.
+        {
+            let conn = self.db.0.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = crate::graph::sync_issue_deps(
+                &conn,
+                issue.number,
+                &repo.repo,
+                &issue.body,
+            );
+        }
+
         // 0. Unblock pass — promote status:blocked issues whose deps are
         //    closed; skip dispatch if we promoted (it'll be picked up next
         //    tick under status:ready).
@@ -111,7 +123,30 @@ impl WorkflowRuntime {
         }
 
         // 1. Dispatch — find the first matching rule and read its directive.
-        let directive = dispatch(&ctx, &self.wf.dispatch.rules, &engine)?;
+        let (directive, rule_index) =
+            dispatch_with_index(&ctx, &self.wf.dispatch.rules, &engine)?;
+
+        // Record the dispatch decision for the state graph before branching.
+        let directive_type = match &directive {
+            Directive::NoAction { .. } => "no_action",
+            Directive::Wait { .. } => "wait",
+            Directive::HumanReview { .. } => "human_review",
+            Directive::SpawnFresh { .. } => "spawn_fresh",
+        };
+        let directive_json =
+            serde_json::to_string(&directive).unwrap_or_else(|_| "{}".into());
+        let dispatch_id: i64 = {
+            let conn = self.db.0.lock().unwrap_or_else(|e| e.into_inner());
+            crate::graph::write_dispatch_log(
+                &conn,
+                issue.number as i64,
+                &repo.repo,
+                rule_index,
+                directive_type,
+                &directive_json,
+            )
+            .unwrap_or(-1)
+        };
 
         match directive {
             Directive::NoAction { reason } => Ok(DispatchOutcome::NoAction { reason }),
@@ -138,7 +173,7 @@ impl WorkflowRuntime {
                 Ok(DispatchOutcome::HumanReview { reason })
             }
             Directive::SpawnFresh { role, mode, .. } => {
-                self.run_spawn_pipeline(repo, issue, role, mode, ctx, engine, rt)
+                self.run_spawn_pipeline(repo, issue, role, mode, ctx, engine, rt, dispatch_id)
                     .await
             }
         }
@@ -153,6 +188,7 @@ impl WorkflowRuntime {
         mut ctx: ExprContext,
         engine: ExprEngine,
         mut rt: RuntimeContext,
+        dispatch_id: i64,
     ) -> Result<DispatchOutcome, RuntimeError> {
         // 2. Pre-spawn evaluator — may abort or reroute. Pass the dispatched
         //    role so `role:` and `repo_path_exists:` atoms can resolve.
@@ -243,6 +279,33 @@ impl WorkflowRuntime {
                 return Err(RuntimeError::Spawn(e));
             }
         };
+
+        // Back-fill run_id in dispatch_log and insert the issue → run edge.
+        {
+            let conn = self.db.0.lock().unwrap_or_else(|e| e.into_inner());
+            if dispatch_id >= 0 {
+                let _ = crate::graph::update_dispatch_run_id(
+                    &conn,
+                    dispatch_id,
+                    &agent.run_id,
+                );
+            }
+            let issue_node = format!("{}#{}", repo.repo, issue.number);
+            let meta = serde_json::json!({
+                "rule_dispatch_id": dispatch_id,
+                "role": final_role,
+            })
+            .to_string();
+            let _ = crate::graph::write_graph_edge(
+                &conn,
+                "issue",
+                &issue_node,
+                "dispatched_to",
+                "run",
+                &agent.run_id,
+                Some(&meta),
+            );
+        }
 
         // 5. Translate structured output into GitHub side effects via
         //    on_result handlers; fall back to on_no_structured_output when

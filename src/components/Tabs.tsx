@@ -1,11 +1,11 @@
 import "./Tabs.css";
 
-export type TabKey = "home" | "persistent" | "one-shot" | "cron" | "workflow";
+export type TabKey = "home" | "persistent" | "one-shot" | "graph" | "workflow";
 
 export interface RepoCounts {
   persistent: number;
   oneShot: number;
-  cron: number;
+  graph: number;
   workflow: number;
 }
 
@@ -26,7 +26,7 @@ const TABS: Spec[] = [
   { key: "home", label: "Home" },
   { key: "persistent", label: "Persistent", count: (c) => c.persistent },
   { key: "one-shot", label: "One-Shot", count: (c) => c.oneShot },
-  { key: "cron", label: "Cron", count: (c) => c.cron },
+  { key: "graph", label: "Graph" },
   { key: "workflow", label: "Workflow", count: (c) => c.workflow },
 ];
 

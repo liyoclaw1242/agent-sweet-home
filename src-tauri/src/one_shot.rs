@@ -604,6 +604,17 @@ pub fn start_run(
             "status": status,
         });
         let _ = app_for_threads.emit(&format!("oneshot:exit:{id_for_threads}"), payload);
+
+        // Eagerly parse stream-json events into run_events after the reader
+        // threads have had time to flush their last lines to SQLite.
+        let db_parse = db_for_threads.clone();
+        let id_parse = id_for_threads.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if let Ok(conn) = db_parse.lock() {
+                let _ = crate::graph::parse_and_store_run_events(&conn, &id_parse);
+            }
+        });
     });
 
     Ok(info)

@@ -117,7 +117,7 @@ describe("App", () => {
       "Home",
       "Persistent(0)",
       "One-Shot(0)",
-      "Cron(0)",
+      "Graph",
       "Workflow(0)",
     ]);
     for (const tab of tabs) {

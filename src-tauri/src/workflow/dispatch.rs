@@ -28,14 +28,28 @@ pub fn dispatch(
     rules: &[DispatchRule],
     engine: &ExprEngine,
 ) -> Result<Directive, DispatchError> {
-    for rule in rules {
+    Ok(dispatch_with_index(ctx, rules, engine)?.0)
+}
+
+/// Like `dispatch` but also returns the 0-based index of the matched rule,
+/// or `None` when no rule matched. Used by the runtime to populate
+/// `dispatch_log.rule_index` for causal-chain tracing.
+pub fn dispatch_with_index(
+    ctx: &ExprContext,
+    rules: &[DispatchRule],
+    engine: &ExprEngine,
+) -> Result<(Directive, Option<usize>), DispatchError> {
+    for (i, rule) in rules.iter().enumerate() {
         if eval_predicate(&rule.when, ctx, engine)? {
-            return Ok(rule.then.clone());
+            return Ok((rule.then.clone(), Some(i)));
         }
     }
-    Ok(Directive::NoAction {
-        reason: "no rule matched".into(),
-    })
+    Ok((
+        Directive::NoAction {
+            reason: "no rule matched".into(),
+        },
+        None,
+    ))
 }
 
 pub fn eval_predicate(

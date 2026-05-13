@@ -18,7 +18,7 @@
 //!   runtime. The flat list form is preserved at the YAML layer for clarity;
 //!   the in-memory shape is grouped.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
@@ -69,7 +69,12 @@ pub enum EntryMode {
 pub struct PollConfig {
     pub interval_sec: u64,
     pub max_in_flight: usize,
-    pub repo_source: SourceCommand,
+    /// When absent the engine discovers repos from the app's sidebar cache
+    /// (repos table) and verifies each has a local git clone at
+    /// `{local_base_path}/{repoName}`. When present the command is still
+    /// executed for backward compatibility.
+    #[serde(default)]
+    pub repo_source: Option<SourceCommand>,
     pub issue_source: SourceCommand,
 }
 
@@ -190,7 +195,7 @@ pub enum AtomPredicate {
     Role(String),
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case", tag = "directive")]
 pub enum Directive {
     NoAction {
@@ -564,7 +569,7 @@ dispatch:
         let poll = wf.entry.poll.as_ref().unwrap();
         assert_eq!(poll.interval_sec, 30);
         assert_eq!(poll.max_in_flight, 4);
-        assert!(poll.repo_source.command.contains("registry list"));
+        assert!(poll.repo_source.as_ref().unwrap().command.contains("registry list"));
         assert!(poll.issue_source.command.contains("{repo}"));
 
         let webhook = wf.entry.webhook.as_ref().unwrap();

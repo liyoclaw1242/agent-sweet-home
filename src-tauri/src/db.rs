@@ -73,7 +73,52 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             stream   TEXT NOT NULL,
             text     TEXT NOT NULL,
             PRIMARY KEY (run_id, seq)
-        );",
+        );
+
+        CREATE TABLE IF NOT EXISTS run_events (
+            id           INTEGER PRIMARY KEY,
+            run_id       TEXT NOT NULL REFERENCES one_shot_runs(id) ON DELETE CASCADE,
+            seq          INTEGER NOT NULL,
+            ts           INTEGER NOT NULL,
+            event_type   TEXT NOT NULL,
+            tool_name    TEXT,
+            tool_use_id  TEXT,
+            input_json   TEXT,
+            output_json  TEXT,
+            thinking     TEXT,
+            is_error     INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(run_id, seq)
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_events_run ON run_events(run_id);
+        CREATE INDEX IF NOT EXISTS idx_run_events_tool_use_id ON run_events(tool_use_id);
+
+        CREATE TABLE IF NOT EXISTS dispatch_log (
+            id              INTEGER PRIMARY KEY,
+            issue_number    INTEGER NOT NULL,
+            repo_full_name  TEXT NOT NULL,
+            matched_at      INTEGER NOT NULL,
+            rule_index      INTEGER,
+            directive_type  TEXT NOT NULL,
+            directive_json  TEXT NOT NULL,
+            run_id          TEXT REFERENCES one_shot_runs(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_dispatch_log_issue
+            ON dispatch_log(repo_full_name, issue_number);
+
+        CREATE TABLE IF NOT EXISTS graph_edges (
+            id          INTEGER PRIMARY KEY,
+            from_type   TEXT NOT NULL,
+            from_id     TEXT NOT NULL,
+            edge_type   TEXT NOT NULL,
+            to_type     TEXT NOT NULL,
+            to_id       TEXT NOT NULL,
+            meta_json   TEXT,
+            created_at  INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_graph_edges_from
+            ON graph_edges(from_type, from_id);
+        CREATE INDEX IF NOT EXISTS idx_graph_edges_to
+            ON graph_edges(to_type, to_id);",
     )
 }
 

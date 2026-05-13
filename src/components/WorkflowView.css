@@ -1,100 +1,20 @@
 .workflow-view {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 0;
+  gap: 16px;
   height: 100%;
+  min-height: 0;
 }
 
 .workflow-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
+  flex-shrink: 0;
 }
 .workflow-header h2 {
   margin: 0;
   font-size: 18px;
-}
-
-.workflow-reload {
-  background: #ffffff;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  padding: 4px 12px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.workflow-reload:hover {
-  background: #f6f8fa;
-}
-
-.workflow-meta {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  column-gap: 12px;
-  row-gap: 6px;
-  margin: 0;
-}
-.workflow-meta dt {
-  font-weight: 600;
-  color: #57606a;
-  font-size: 13px;
-}
-.workflow-meta dd {
-  margin: 0;
-  font-size: 13px;
-  word-break: break-all;
-}
-.workflow-meta code {
-  background: #f6f8fa;
-  border: 1px solid #d0d7de;
-  border-radius: 4px;
-  padding: 1px 6px;
-  font-size: 12px;
-}
-
-.workflow-badge {
-  display: inline-block;
-  border-radius: 12px;
-  padding: 2px 10px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.wf-state-loaded {
-  background: #dafbe1;
-  color: #1a7f37;
-}
-.wf-state-missing {
-  background: #fff8c5;
-  color: #9a6700;
-}
-.wf-state-error {
-  background: #ffebe9;
-  color: #cf222e;
-}
-.wf-state-pending {
-  background: #eaeef2;
-  color: #57606a;
-}
-
-.workflow-section {
-  margin: 8px 0 0;
-  font-size: 14px;
-}
-
-.workflow-yaml {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  background: #0d1117;
-  color: #c9d1d9;
-  border-radius: 8px;
-  padding: 12px 16px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  margin: 0;
 }
 
 .workflow-error {
@@ -114,7 +34,7 @@
   padding: 8px 12px;
   font-size: 12px;
   color: #82071e;
-  margin: 0;
+  margin: 8px 0 0;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -123,96 +43,110 @@
   background: #f6f8fa;
   border: 1px dashed #d0d7de;
   border-radius: 6px;
-  padding: 16px;
+  padding: 20px;
   font-size: 13px;
   color: #57606a;
   margin: 0;
 }
+.workflow-empty p {
+  margin: 0 0 6px;
+}
+.workflow-empty p:last-child {
+  margin: 0;
+}
 
-.workflow-path-form {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* ── Toggle section ── */
+.wf-toggle-section {
   background: #f6f8fa;
   border: 1px solid #d0d7de;
-  border-radius: 6px;
-  padding: 10px 12px;
-}
-.workflow-path-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #57606a;
-}
-.workflow-path-row {
+  border-radius: 8px;
+  padding: 14px 16px;
   display: flex;
+  flex-direction: column;
   gap: 8px;
 }
-.workflow-path-input {
-  flex: 1;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  background: #ffffff;
-}
-.workflow-path-input:focus {
-  outline: 2px solid #0969da;
-  outline-offset: -1px;
-  border-color: transparent;
-}
-.workflow-path-save {
-  background: #1f883d;
-  color: #ffffff;
-  border: 1px solid rgba(31, 35, 40, 0.15);
-  border-radius: 6px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.workflow-path-save:hover:not(:disabled) {
-  background: #1a7f37;
-}
-.workflow-path-save:disabled {
-  background: #94d3a2;
-  cursor: not-allowed;
-}
-.workflow-path-hint {
-  margin: 0;
-  font-size: 11px;
-  color: #57606a;
-}
-.workflow-path-hint code {
-  background: #ffffff;
-  border: 1px solid #d0d7de;
-  border-radius: 3px;
-  padding: 0 4px;
-  font-size: 11px;
-}
-.workflow-path-saved {
-  margin: 0;
-  font-size: 12px;
-  color: #1a7f37;
-  font-weight: 500;
+
+.wf-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
-/* Status dot inline with "Applied path" label */
-.wf-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-right: 6px;
-  vertical-align: middle;
+.wf-toggle-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wf-toggle-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.wf-repo-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: #1f2328;
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.wf-toggle-state {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.wf-active {
+  background: #dafbe1;
+  color: #1a7f37;
+}
+.wf-inactive {
+  background: #fff8c5;
+  color: #9a6700;
+}
+
+.wf-toggle-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #57606a;
+}
+
+/* ── Toggle switch ── */
+.wf-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: #d0d7de;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+  padding: 0;
   flex-shrink: 0;
 }
-.wf-dot--ok {
+.wf-switch--on {
   background: #1a7f37;
 }
-.wf-dot--error {
-  background: #cf222e;
+.wf-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
-.wf-dot--missing {
-  background: #8c959f;
+.wf-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  display: block;
 }
+.wf-switch--on .wf-switch-thumb {
+  transform: translateX(20px);
+}
+

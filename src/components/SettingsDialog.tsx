@@ -12,6 +12,13 @@ interface Settings {
   githubUsername: string;
   githubToken: string;
   localBasePath: string;
+  workflowPath: string;
+}
+
+interface WorkflowStatus {
+  loaded: boolean;
+  exists: boolean;
+  error: string | null;
 }
 
 export default function SettingsDialog({ open, onClose, onSaved }: Props) {
@@ -21,25 +28,36 @@ export default function SettingsDialog({ open, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Workflow path — separate save (requires restart)
+  const [wfPath, setWfPath] = useState("");
+  const [savedWfPath, setSavedWfPath] = useState("");
+  const [wfStatus, setWfStatus] = useState<WorkflowStatus | null>(null);
+  const [wfSaving, setWfSaving] = useState(false);
+  const [wfSaveMsg, setWfSaveMsg] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
       try {
-        const s = await invoke<Settings>("get_settings");
+        const [s, ws] = await Promise.all([
+          invoke<Settings>("get_settings"),
+          invoke<WorkflowStatus>("workflow_status"),
+        ]);
         if (cancelled) return;
         setUsername(s.githubUsername ?? "");
         setToken(s.githubToken ?? "");
         setLocalBasePath(s.localBasePath ?? "");
+        setWfPath(s.workflowPath ?? "");
+        setSavedWfPath(s.workflowPath ?? "");
+        setWfStatus(ws);
         setError(null);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : String(e));
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [open]);
 
   if (!open) return null;
@@ -60,6 +78,20 @@ export default function SettingsDialog({ open, onClose, onSaved }: Props) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveWfPath() {
+    setWfSaving(true);
+    setWfSaveMsg(null);
+    try {
+      await invoke("save_workflow_path", { path: wfPath.trim() });
+      setSavedWfPath(wfPath.trim());
+      setWfSaveMsg("Saved — restart the app to apply.");
+    } catch (err) {
+      setWfSaveMsg(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setWfSaving(false);
     }
   }
 
@@ -128,6 +160,49 @@ export default function SettingsDialog({ open, onClose, onSaved }: Props) {
               <code>git status</code>.
             </small>
           </label>
+          <div className="dialog-section-divider" />
+          <div className="dialog-section-title">Workflow</div>
+          <label className="dialog-field">
+            <span>YAML path</span>
+            <input
+              value={wfPath}
+              onChange={(e) => {
+                setWfPath(e.target.value);
+                setWfSaveMsg(null);
+              }}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="/abs/path/to/workflow.yaml"
+            />
+            <small>
+              Leave empty to use <code>app_data_dir/workflow.yaml</code>.
+              Override with <code>WORKFLOW_FILE</code> env var.
+            </small>
+          </label>
+          <div className="dialog-wf-row">
+            {wfStatus && (
+              <span className={`dialog-wf-dot ${wfStatus.loaded ? "dialog-wf-ok" : wfStatus.exists ? "dialog-wf-error" : "dialog-wf-missing"}`} />
+            )}
+            {wfStatus && (
+              <span className="dialog-wf-status">
+                {wfStatus.loaded ? "loaded" : wfStatus.exists ? "parse error" : "not found"}
+              </span>
+            )}
+            <button
+              type="button"
+              className="dialog-wf-save"
+              onClick={() => void handleSaveWfPath()}
+              disabled={wfSaving || wfPath.trim() === savedWfPath}
+            >
+              {wfSaving ? "Saving…" : "Save path"}
+            </button>
+          </div>
+          {wfSaveMsg && (
+            <p className={`dialog-wf-msg ${wfSaveMsg.startsWith("Error") ? "dialog-error" : "dialog-wf-ok-msg"}`}>
+              {wfSaveMsg}
+            </p>
+          )}
+
           {error && <p className="dialog-error">{error}</p>}
           <div className="dialog-actions">
             <button type="button" onClick={onClose} disabled={saving}>

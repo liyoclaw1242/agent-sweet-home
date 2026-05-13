@@ -40,8 +40,7 @@ pub struct WorkflowStatus {
 }
 
 /// Response shape for `workflow_status` — same as `WorkflowStatus` plus the
-/// raw YAML text (so the UI can preview what's applied without re-resolving
-/// the path).
+/// raw YAML text and whether the poll loop is currently active.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowStatusResponse {
@@ -50,15 +49,16 @@ pub struct WorkflowStatusResponse {
     pub loaded: bool,
     pub error: Option<String>,
     pub content: Option<String>,
+    /// Whether the poll loop is currently active (not paused).
+    pub running: bool,
 }
 
 #[tauri::command]
 pub fn workflow_status(
     state: State<'_, Arc<RwLock<WorkflowStatus>>>,
+    pause: State<'_, crate::WorkflowPause>,
 ) -> Result<WorkflowStatusResponse, String> {
-    let s = state
-        .read()
-        .map_err(|e| e.to_string())?;
+    let s = state.read().map_err(|e| e.to_string())?;
     let content = if s.exists {
         std::fs::read_to_string(&s.path).ok()
     } else {
@@ -70,6 +70,7 @@ pub fn workflow_status(
         loaded: s.loaded,
         error: s.error.clone(),
         content,
+        running: !pause.0.load(std::sync::atomic::Ordering::Relaxed),
     })
 }
 
@@ -113,6 +114,7 @@ pub fn load(path: &Path) -> Result<spec::Workflow, LoadError> {
 pub fn start(
     runtime: Arc<runtime::WorkflowRuntime>,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    pause: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Vec<tauri::async_runtime::JoinHandle<()>> {
     let mut handles = Vec::new();
     let modes = runtime.wf.entry.modes.clone();
@@ -125,6 +127,7 @@ pub fn start(
                 };
                 let runtime_clone = runtime.clone();
                 let shutdown_clone = shutdown_rx.clone();
+                let pause_clone = pause.clone();
                 let handle = tauri::async_runtime::spawn(async move {
                     let cfg = runtime_clone
                         .wf
@@ -136,6 +139,7 @@ pub fn start(
                         cfg,
                         runtime_clone.clone(),
                         shutdown_clone,
+                        pause_clone,
                     )
                     .await
                     {

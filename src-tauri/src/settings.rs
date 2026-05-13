@@ -81,6 +81,69 @@ pub fn save_workflow_path(db: State<'_, Db>, path: String) -> Result<(), String>
     save_workflow_path_inner(&conn, &path).map_err(|e| e.to_string())
 }
 
+// ---- Per-repo workflow activation --------------------------------------
+
+// ---- Per-repo workflow activation (opt-in, default off) ---------------
+
+/// Returns the set of repo full names that have been explicitly opted in to
+/// workflow scanning. Repos NOT in this set are skipped by the poll loop.
+/// Default is empty → nothing is scanned until the user enables a repo.
+pub fn get_active_repos_inner(conn: &Connection) -> std::collections::HashSet<String> {
+    use rusqlite::OptionalExtension;
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'workflow_active_repos'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap_or(None);
+    json.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .collect()
+}
+
+fn set_active_repos_inner(
+    conn: &Connection,
+    active: &std::collections::HashSet<String>,
+) -> rusqlite::Result<()> {
+    let mut list: Vec<&String> = active.iter().collect();
+    list.sort();
+    let json = serde_json::to_string(&list).unwrap_or_else(|_| "[]".into());
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at)
+         VALUES ('workflow_active_repos', ?1, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        params![json],
+    )?;
+    Ok(())
+}
+
+/// Returns `true` when the repo has been explicitly opted in to workflow scanning.
+#[tauri::command]
+pub fn workflow_get_repo_active(db: State<'_, Db>, repo_full_name: String) -> bool {
+    let conn = db.0.lock().unwrap_or_else(|e| e.into_inner());
+    get_active_repos_inner(&conn).contains(&repo_full_name)
+}
+
+/// Add or remove `repo_full_name` from the opt-in list.
+#[tauri::command]
+pub fn workflow_set_repo_active(
+    db: State<'_, Db>,
+    repo_full_name: String,
+    active: bool,
+) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let mut set = get_active_repos_inner(&conn);
+    if active {
+        set.insert(repo_full_name);
+    } else {
+        set.remove(&repo_full_name);
+    }
+    set_active_repos_inner(&conn, &set).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,6 +153,31 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         run_migrations(&conn).unwrap();
         conn
+    }
+
+    #[test]
+    fn workflow_repo_active_defaults_to_false() {
+        let conn = fresh_conn();
+        // No entry in DB → repo is NOT active (opt-in default)
+        assert!(!get_active_repos_inner(&conn).contains("org/repo"));
+    }
+
+    #[test]
+    fn workflow_repo_opt_in_round_trips() {
+        let conn = fresh_conn();
+        let mut set = get_active_repos_inner(&conn);
+        set.insert("org/repo-a".into());
+        set_active_repos_inner(&conn, &set).unwrap();
+
+        let loaded = get_active_repos_inner(&conn);
+        assert!(loaded.contains("org/repo-a"));
+        assert!(!loaded.contains("org/repo-b"));
+
+        // Opt out
+        let mut set = get_active_repos_inner(&conn);
+        set.remove("org/repo-a");
+        set_active_repos_inner(&conn, &set).unwrap();
+        assert!(!get_active_repos_inner(&conn).contains("org/repo-a"));
     }
 
     #[test]

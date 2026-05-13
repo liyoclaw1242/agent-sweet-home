@@ -7,6 +7,7 @@
 //! can stop the loop on app exit.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -67,7 +68,9 @@ pub struct PollSource<'a> {
 #[async_trait]
 impl<'a> IssueSource for PollSource<'a> {
     async fn fetch_repos(&self) -> Result<Vec<RepoRef>, EntryError> {
-        let cmd = render_template(&self.cfg.repo_source.command, &HashMap::new())?;
+        let src = self.cfg.repo_source.as_ref()
+            .expect("fetch_repos called without repo_source configured in YAML");
+        let cmd = render_template(&src.command, &HashMap::new())?;
         let repos: Vec<RepoRef> = run_capture_json(&cmd)?;
         Ok(repos)
     }
@@ -100,6 +103,7 @@ pub async fn run_poll_loop(
     cfg: &PollConfig,
     runtime: Arc<WorkflowRuntime>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
+    pause: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<(), EntryError> {
     let semaphore = Arc::new(Semaphore::new(cfg.max_in_flight.max(1)));
     let mut interval = tokio::time::interval(Duration::from_secs(cfg.interval_sec.max(1)));
@@ -113,6 +117,9 @@ pub async fn run_poll_loop(
                 }
             }
             _ = interval.tick() => {
+                if pause.load(std::sync::atomic::Ordering::Relaxed) {
+                    continue;
+                }
                 if let Err(e) = run_one_tick(cfg, runtime.clone(), semaphore.clone()).await {
                     eprintln!("workflow poll tick failed: {e}");
                 }
@@ -126,8 +133,25 @@ async fn run_one_tick(
     runtime: Arc<WorkflowRuntime>,
     semaphore: Arc<Semaphore>,
 ) -> Result<(), EntryError> {
+    // Discover repos — either via the YAML repo_source command (backward
+    // compat) or from the app's sidebar cache filtered to repos with a valid
+    // local git clone.
     let source = PollSource { cfg };
-    let repos = source.fetch_repos().await?;
+    let all_repos: Vec<RepoRef> = if cfg.repo_source.is_some() {
+        source.fetch_repos().await?
+    } else {
+        system_repos(&runtime.db)
+    };
+
+    // Keep only repos the user has explicitly opted in to workflow scanning.
+    let active_set = {
+        let conn = runtime.db.0.lock().unwrap_or_else(|e| e.into_inner());
+        crate::settings::get_active_repos_inner(&conn)
+    };
+    let repos: Vec<_> = all_repos
+        .into_iter()
+        .filter(|r| active_set.contains(&r.repo))
+        .collect();
     let mut tasks = Vec::new();
     for repo in repos {
         let issues = match source.fetch_issues(&repo.repo).await {
@@ -206,6 +230,54 @@ fn quarantine_issue(repo: &str, issue_number: u64) -> Result<(), CommandError> {
     );
     run_capture(&cmd)?;
     Ok(())
+}
+
+/// Discover repos from the app's sidebar cache. Each repo is included only
+/// when its local path exists and contains a `.git` directory.
+fn system_repos(db: &crate::db::Db) -> Vec<RepoRef> {
+    let (repos, base_path) = {
+        let conn = db.0.lock().unwrap_or_else(|e| e.into_inner());
+        let repos = crate::cache::list_repos(&conn).unwrap_or_default();
+        let settings = crate::settings::get_settings_inner(&conn).unwrap_or_default();
+        (repos, settings.local_base_path)
+    };
+
+    let effective_base = if base_path.trim().is_empty() {
+        crate::local_repo::DEFAULT_BASE_PATH.to_string()
+    } else {
+        base_path
+    };
+
+    repos
+        .into_iter()
+        .filter_map(|r| {
+            let path = resolve_path(&effective_base, &r.name);
+            if path.exists() && path.join(".git").exists() {
+                Some(RepoRef {
+                    repo: r.full_name,
+                    path: path.to_string_lossy().to_string(),
+                })
+            } else {
+                eprintln!(
+                    "workflow: skipping {} — no local git clone at {}",
+                    r.full_name,
+                    path.display()
+                );
+                None
+            }
+        })
+        .collect()
+}
+
+fn resolve_path(base: &str, repo_name: &str) -> PathBuf {
+    let expanded = if let Some(rest) = base.strip_prefix("~/") {
+        std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join(rest))
+            .unwrap_or_else(|| PathBuf::from(base))
+    } else {
+        PathBuf::from(base)
+    };
+    expanded.join(repo_name)
 }
 
 #[cfg(test)]
