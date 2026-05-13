@@ -44,6 +44,8 @@ pub struct RunSummary {
     /// Workflow role (e.g. "worker", "whitebox-validator") if this run was
     /// dispatched by the workflow engine; None for manual one-shots.
     pub agent_label: Option<String>,
+    /// GitHub issue number that triggered this run via the workflow engine.
+    pub issue_number: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -70,8 +72,9 @@ pub fn get_graph_state(conn: &Connection) -> rusqlite::Result<GraphState> {
         "SELECT r.id, r.repo_name, r.status, r.started_at, r.ended_at, r.total_cost_usd,
                 COUNT(DISTINCT e.id) AS event_count,
                 COUNT(DISTINCT CASE WHEN e.event_type = 'tool_use' THEN e.id END) AS tool_call_count,
-                (SELECT d.directive_json FROM dispatch_log d WHERE d.run_id = r.id LIMIT 1) AS directive_json,
-                r.argv_json
+                (SELECT d.directive_json  FROM dispatch_log d WHERE d.run_id = r.id LIMIT 1) AS directive_json,
+                r.argv_json,
+                (SELECT d.issue_number FROM dispatch_log d WHERE d.run_id = r.id LIMIT 1) AS issue_number
          FROM one_shot_runs r
          LEFT JOIN run_events e ON e.run_id = r.id
          GROUP BY r.id
@@ -82,14 +85,12 @@ pub fn get_graph_state(conn: &Connection) -> rusqlite::Result<GraphState> {
         .query_map([], |row| {
             let directive_json: Option<String> = row.get(8)?;
             let argv_json: String = row.get(9)?;
+            let issue_number: Option<i64> = row.get(10)?;
 
-            // Priority 1: role from dispatch_log directive_json
             let from_dispatch = directive_json.as_deref().and_then(|json| {
                 serde_json::from_str::<Value>(json).ok()
                     .and_then(|v| v.get("role").and_then(|r| r.as_str()).map(String::from))
             });
-
-            // Priority 2: parse --name from argv_json → extract role component
             let agent_label = from_dispatch.or_else(|| role_from_argv(&argv_json));
 
             Ok(RunSummary {
@@ -102,6 +103,7 @@ pub fn get_graph_state(conn: &Connection) -> rusqlite::Result<GraphState> {
                 event_count: row.get(6)?,
                 tool_call_count: row.get(7)?,
                 agent_label,
+                issue_number,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -675,7 +677,49 @@ pub fn get_issue_trace(
     })
 }
 
+// ---- Internal helpers ---------------------------------------------------
+
+pub fn get_dispatch_log_recent(
+    conn: &Connection,
+    repo_full_name: &str,
+    limit: i64,
+) -> rusqlite::Result<Vec<DispatchEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, issue_number, repo_full_name, matched_at, rule_index,
+                directive_type, directive_json, run_id
+         FROM dispatch_log
+         WHERE repo_full_name = ?1
+         ORDER BY matched_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![repo_full_name, limit], |row| {
+        Ok(DispatchEntry {
+            id: row.get(0)?,
+            issue_number: row.get(1)?,
+            repo_full_name: row.get(2)?,
+            matched_at: row.get(3)?,
+            rule_index: row.get(4)?,
+            directive_type: row.get(5)?,
+            directive_json: row.get(6)?,
+            run_id: row.get(7)?,
+        })
+    })?
+    .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 // ---- Tauri commands -----------------------------------------------------
+
+#[tauri::command]
+pub fn dispatch_log_recent_cmd(
+    repo_full_name: String,
+    limit: Option<i64>,
+    db: State<'_, Db>,
+) -> Result<Vec<DispatchEntry>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    get_dispatch_log_recent(&conn, &repo_full_name, limit.unwrap_or(40))
+        .map_err(|e| e.to_string())
+}
 
 #[tauri::command]
 pub fn graph_state_cmd(db: State<'_, Db>) -> Result<GraphState, String> {

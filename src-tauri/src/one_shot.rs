@@ -506,6 +506,10 @@ pub fn start_run(
         insert_run(&conn, &info).map_err(|e| e.to_string())?;
     }
 
+    // Notify the frontend that a new run exists for this repo so it can
+    // refresh its sidebar list without polling.
+    let _ = app.emit(&format!("oneshot:created:{}", info.repo_id), info.id.clone());
+
     // Resolve the spawn binary. `build_argv` hardcodes "claude" as argv[0],
     // which works on POSIX (the shim in PATH is invoked directly) but
     // fails on Windows where npm-installed CLIs ship as `.cmd` batch

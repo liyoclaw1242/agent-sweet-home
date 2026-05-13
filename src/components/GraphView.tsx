@@ -14,6 +14,7 @@ interface RunSummary {
   eventCount: number;
   toolCallCount: number;
   agentLabel: string | null;
+  issueNumber: number | null;
 }
 
 interface RunEvent {
@@ -369,6 +370,9 @@ export default function GraphView() {
                     <span className="trace-hdr-repo">{selectedRun.repoName}</span>
                   </div>
                   <div className="trace-hdr-right">
+                    {selectedRun.issueNumber != null && (
+                      <span className="trace-hdr-issue">#{selectedRun.issueNumber}</span>
+                    )}
                     {(() => { const b = agentBadge(selectedRun.agentLabel); return b ? <span className={`agent-badge ${b.cls}`}>{b.text}</span> : null; })()}
                     <span className={`trace-hdr-status ${statusCls(selectedRun.status)}`}>
                       {selectedRun.status}

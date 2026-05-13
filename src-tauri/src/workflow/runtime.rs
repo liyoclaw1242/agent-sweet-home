@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::Value;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use crate::db::Db;
 use crate::one_shot::OneShotState;
@@ -147,6 +147,9 @@ impl WorkflowRuntime {
             )
             .unwrap_or(-1)
         };
+
+        // Notify frontend so the dispatch log panel refreshes without polling.
+        let _ = self.app.emit("dispatch:logged", &repo.repo);
 
         match directive {
             Directive::NoAction { reason } => Ok(DispatchOutcome::NoAction { reason }),

@@ -51,7 +51,7 @@ type ChatMsg =
   | { kind: "assistant";    text: string;   ts: number; seq: number }
   | { kind: "tool-call";   id: string; name: string; input: unknown; ts: number; seq: number }
   | { kind: "tool-result"; toolId: string; isError: boolean; content: string; ts: number; seq: number }
-  | { kind: "result";      text: string; cost: number | null; isError: boolean; ts: number; seq: number }
+  | { kind: "result";      text: string; cost: number | null; isError: boolean; rawJson: string; ts: number; seq: number }
   | { kind: "stderr";      text: string;   ts: number; seq: number }
   | { kind: "raw";         text: string;   ts: number; seq: number };
 
@@ -116,6 +116,7 @@ function parseLines(lines: LogLine[]): ChatMsg[] {
           text: ev.result ?? "",
           cost: ev.total_cost_usd ?? null,
           isError: ev.is_error ?? false,
+          rawJson: line.text,
           ts: line.ts,
           seq: line.seq,
         });
@@ -226,14 +227,21 @@ function ToolResultBlock({ toolId, content, isError, ts }: { toolId: string; con
   );
 }
 
-function ResultBar({ text, cost, isError }: { text: string; cost: number | null; isError: boolean }) {
+function ResultBar({ text, cost, isError, rawJson }: { text: string; cost: number | null; isError: boolean; rawJson: string }) {
+  const pretty = (() => { try { return JSON.stringify(JSON.parse(rawJson), null, 2); } catch { return rawJson; } })();
   return (
     <div className={`result-bar${isError ? " is-error" : ""}`}>
-      <span className="result-status">{isError ? "failed" : "completed"}</span>
-      {cost !== null && <span className="result-cost">${cost.toFixed(4)}</span>}
-      {text.trim() && (
-        <span className="result-text">{text.length > 280 ? `${text.slice(0, 280)}…` : text}</span>
-      )}
+      <div className="result-bar-head">
+        <span className="result-status">{isError ? "failed" : "completed"}</span>
+        {cost !== null && <span className="result-cost">${cost.toFixed(4)}</span>}
+        {text.trim() && (
+          <span className="result-text">{text.length > 200 ? `${text.slice(0, 200)}…` : text}</span>
+        )}
+      </div>
+      <details className="result-raw-block">
+        <summary className="result-raw-summary">structured output</summary>
+        <pre className="result-raw-body">{pretty}</pre>
+      </details>
     </div>
   );
 }
@@ -281,6 +289,15 @@ export default function OneShotView({
   }, [repo.id]);
 
   useEffect(() => { void loadRuns(); }, [loadRuns]);
+
+  // Reload when the workflow engine creates a new run for this repo.
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    listen<string>(`oneshot:created:${repo.id}`, () => { void loadRuns(); })
+      .then((fn) => { unlisten = fn; })
+      .catch(() => {});
+    return () => { unlisten?.(); };
+  }, [repo.id, loadRuns]);
 
   const runningCount = useMemo(() => runs.filter((r) => r.status === "running").length, [runs]);
 
@@ -387,6 +404,12 @@ export default function OneShotView({
               <span className="chat-run-cmd" title={activeRun.argv.join(" ")}>
                 {activeRun.argv.join(" ")}
               </span>
+              {activeRun.prompt.trim() && (
+                <details className="chat-prompt-block">
+                  <summary className="chat-prompt-summary">prompt</summary>
+                  <pre className="chat-prompt-body">{activeRun.prompt}</pre>
+                </details>
+              )}
             </div>
             <span className={statusClass(activeRun.status)}>{activeRun.status}</span>
             {activeRun.totalCostUsd != null && (
@@ -427,7 +450,7 @@ export default function OneShotView({
             case "tool-result":
               return <ToolResultBlock key={key} toolId={msg.toolId} content={msg.content} isError={msg.isError} ts={msg.ts} />;
             case "result":
-              return <ResultBar key={key} text={msg.text} cost={msg.cost} isError={msg.isError} />;
+              return <ResultBar key={key} text={msg.text} cost={msg.cost} isError={msg.isError} rawJson={msg.rawJson} />;
             case "stderr":
               return <div key={key} className="chat-stderr">{msg.text}</div>;
             case "raw":

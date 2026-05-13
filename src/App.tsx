@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import Header from "./components/Header";
 import Sidebar, {
   type Repo,
@@ -110,6 +111,29 @@ function App() {
 
   const sessions = selectedRepo ? sessionsByRepo[selectedRepo.id] ?? [] : [];
   const runs     = selectedRepo ? runsByRepo[selectedRepo.id] ?? []     : [];
+
+  // Keep sidebar run list fresh when workflow engine creates a new run.
+  useEffect(() => {
+    if (!selectedRepo) return;
+    const id = selectedRepo.id;
+    let unlisten: (() => void) | null = null;
+    listen<string>(`oneshot:created:${id}`, () => {
+      void invoke<Array<{ id: string; status: SidebarRun["status"]; argv: string[] }>>(
+        "one_shot_list", { args: { repoId: id } },
+      ).then((list) => {
+        setRunsByRepo((prev) => ({
+          ...prev,
+          [id]: (list ?? []).map((r) => {
+            const nameIdx = (r.argv ?? []).indexOf("--name");
+            const name = nameIdx !== -1 ? r.argv[nameIdx + 1] ?? "" : "";
+            const role = name ? (name.replace(/-issue\d+$/, "").replace(/-[^-]+$/, "") || null) : null;
+            return { id: r.id, status: r.status, role };
+          }),
+        }));
+      }).catch(() => {});
+    }).then((fn) => { unlisten = fn; }).catch(() => {});
+    return () => { unlisten?.(); };
+  }, [selectedRepo]);
 
   // ── Selected run (driven by sidebar click) ────────────────────────────
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
