@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type React from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Repo } from "./Sidebar";
+import type { Repo, SidebarSession } from "./Sidebar";
 import TerminalTile, { type SessionInfo } from "./TerminalTile";
 import "./PersistentView.css";
 
@@ -18,14 +19,26 @@ interface LocalInspection {
 interface Props {
   repo: Repo;
   onCountChange?: (count: number) => void;
+  onSessionsChange?: (sessions: SidebarSession[]) => void;
+  newTerminalRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-export default function PersistentView({ repo, onCountChange }: Props) {
+function toSidebarSession(s: SessionInfo): SidebarSession {
+  if (s.exitCode !== null) return { id: s.id, status: "exited",  meta: `exit ${s.exitCode}` };
+  if (s.frozen)            return { id: s.id, status: "frozen",  meta: "idle" };
+  const m = Math.floor(s.uptimeSecs / 60);
+  const sec = s.uptimeSecs % 60;
+  return { id: s.id, status: "running", meta: m > 0 ? `${m}m${sec}s` : `${sec}s` };
+}
+
+export default function PersistentView({ repo, onCountChange, onSessionsChange, newTerminalRef }: Props) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onCountChangeRef = useRef(onCountChange);
   onCountChangeRef.current = onCountChange;
+  const onSessionsChangeRef = useRef(onSessionsChange);
+  onSessionsChangeRef.current = onSessionsChange;
 
   // Hydrate from backend on mount (and whenever the repo changes) so that
   // sessions that survived a tab switch reappear.
@@ -50,7 +63,8 @@ export default function PersistentView({ repo, onCountChange }: Props) {
 
   useEffect(() => {
     onCountChangeRef.current?.(sessions.length);
-  }, [sessions.length]);
+    onSessionsChangeRef.current?.(sessions.map(toSidebarSession));
+  }, [sessions]);
 
   const handleCreate = useCallback(async () => {
     setCreating(true);
@@ -86,6 +100,14 @@ export default function PersistentView({ repo, onCountChange }: Props) {
     }
   }, []);
 
+  // Expose handleCreate to sidebar "+" button
+  useEffect(() => {
+    if (newTerminalRef) {
+      newTerminalRef.current = () => { void handleCreate(); };
+      return () => { newTerminalRef.current = null; };
+    }
+  }, [newTerminalRef, handleCreate]);
+
   return (
     <section className="persistent" aria-label="Persistent terminals">
       <header className="persistent-header">
@@ -106,20 +128,6 @@ export default function PersistentView({ repo, onCountChange }: Props) {
         {sessions.map((s) => (
           <TerminalTile key={s.id} session={s} onClose={handleClose} />
         ))}
-        <button
-          type="button"
-          className="terminal-new-tile"
-          onClick={handleCreate}
-          disabled={creating}
-          aria-label="Open new terminal"
-        >
-          <span className="terminal-new-tile-plus" aria-hidden="true">
-            +
-          </span>
-          <span className="terminal-new-tile-label">
-            {creating ? "Starting…" : "New terminal"}
-          </span>
-        </button>
       </div>
     </section>
   );

@@ -211,32 +211,31 @@ function RepoView({
   newTerminalRef: React.MutableRefObject<(() => void) | null>;
   newOneShotRef: React.MutableRefObject<(() => void) | null>;
 }) {
-  if (tab === "info") return <HomeView repo={repo} />;
-  if (tab === "flow") return <WorkflowView repo={repo} />;
-
-  if (tab === "persistent")
-    return (
-      <PersistentView
-        repo={repo}
-        onCountChange={onPersistentCount}
-        onSessionsChange={onSessionsChange}
-        newTerminalRef={newTerminalRef}
-      />
-    );
-
-  if (tab === "one-shot")
-    return (
-      <OneShotView
-        repo={repo}
-        selectedRunId={selectedRunId}
-        onCountChange={onOneShotCount}
-        onRunsChange={onRunsChange}
-        onRunCreated={onRunCreated}
-        newOneShotRef={newOneShotRef}
-      />
-    );
-
-  return null;
+  return (
+    <>
+      {tab === "info" && <HomeView repo={repo} />}
+      {tab === "flow" && <WorkflowView repo={repo} />}
+      {tab === "one-shot" && (
+        <OneShotView
+          repo={repo}
+          selectedRunId={selectedRunId}
+          onCountChange={onOneShotCount}
+          onRunsChange={onRunsChange}
+          onRunCreated={onRunCreated}
+          newOneShotRef={newOneShotRef}
+        />
+      )}
+      {/* Always mounted — hiding with CSS preserves xterm instances and scrollback */}
+      <div style={tab === "persistent" ? { display: "contents" } : { display: "none" }}>
+        <PersistentView
+          repo={repo}
+          onCountChange={onPersistentCount}
+          onSessionsChange={onSessionsChange}
+          newTerminalRef={newTerminalRef}
+        />
+      </div>
+    </>
+  );
 }
 
 export default App;
