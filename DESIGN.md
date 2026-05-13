@@ -301,10 +301,6 @@ Turns the cost meter from a single number into a "where is my money going right 
 
 ## Preview
 
-The full design system rendered as a working HTML page lives at:
+The full design system rendered as a working HTML page lives at [`docs/design-preview.html`](docs/design-preview.html). Open it in any browser — light/dark toggle in the top right.
 
-```
-~/.gstack/projects/liyoclaw1242-agent-sweet-home/designs/design-system-20260513/preview.html
-```
-
-Open it in any browser. Light/dark toggle in the top right.
+A point-in-time consultation audit (decisions, departures, subagent critiques applied) is kept outside the repo at `~/.gstack/projects/liyoclaw1242-agent-sweet-home/designs/design-system-20260513/approved.json`.

@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Agent Sweet Home — Design System Preview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root {
+  /* Dark mode (default) */
+  --surface-0:  #0C1014;
+  --surface-1:  #141921;
+  --surface-2:  #1D2430;
+  --border-lo:  #2A3340;
+  --border-hi:  #3D4A5C;
+  --text-1:     #E8EAED;
+  --text-2:     #A7B0BC;
+  --text-3:     #6B7785;
+  --status-run: #F5A524;
+  --status-ok:  #3FB950;
+  --status-bad: #F85149;
+  --status-zzz: #7C8AA0;
+  --status-burn:#FF6B35;
+  --accent:     #5BC0EB;
+  --font-sans:  'IBM Plex Sans Condensed', system-ui, sans-serif;
+  --font-mono:  'IBM Plex Mono', ui-monospace, monospace;
+}
+html[data-theme='light'] {
+  --surface-0:  #F5F2EC;
+  --surface-1:  #ECE7DC;
+  --surface-2:  #DDD6C6;
+  --border-lo:  #C9C0AC;
+  --border-hi:  #A89D86;
+  --text-1:     #0E1218;
+  --text-2:     #3A4250;
+  --text-3:     #6B7785;
+  --accent:     #0B7FAB;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--surface-0); color: var(--text-1); font-family: var(--font-sans); font-size: 14px; line-height: 1.4; -webkit-font-smoothing: antialiased; }
+body { padding: 0; }
+code, .mono, [data-mono] { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.uppercase { text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; font-weight: 600; }
+hr { border: 0; border-top: 1px solid var(--border-lo); margin: 32px 0; }
+
+/* === DOC SHELL === */
+.doc { max-width: 1440px; margin: 0 auto; padding: 32px; }
+.doc-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--border-hi); margin-bottom: 32px; }
+.doc-header h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.1; }
+.doc-header .sub { color: var(--text-2); font-size: 13px; margin-top: 4px; }
+.thesis { font-family: var(--font-mono); color: var(--text-2); font-size: 12px; max-width: 540px; line-height: 1.55; }
+.theme-toggle { font-family: var(--font-mono); font-size: 11px; background: var(--surface-1); border: 1px solid var(--border-lo); color: var(--text-1); padding: 8px 12px; border-radius: 2px; cursor: pointer; }
+.theme-toggle:hover { background: var(--surface-2); border-color: var(--accent); color: var(--accent); }
+
+.section { margin-bottom: 56px; }
+.section-label { font-family: var(--font-sans); text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; font-weight: 600; color: var(--text-3); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.section-label::after { content: ''; flex: 1; height: 1px; background: var(--border-lo); }
+.section h2 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+.section .lede { color: var(--text-2); font-size: 13px; margin-bottom: 24px; max-width: 720px; }
+
+/* === FULL APP MOCKUP === */
+.app-frame { background: var(--surface-0); border: 1px solid var(--border-hi); border-radius: 4px; overflow: hidden; box-shadow: 0 1px 0 var(--border-hi); }
+.app-titlebar { height: 28px; background: var(--surface-2); border-bottom: 1px solid var(--border-lo); display: flex; align-items: center; padding: 0 12px; gap: 8px; }
+.app-titlebar-dots { display: flex; gap: 6px; }
+.app-titlebar-dots span { width: 10px; height: 10px; border-radius: 50%; }
+.app-titlebar-dots span:nth-child(1) { background: #FF6058; }
+.app-titlebar-dots span:nth-child(2) { background: #FEBF2E; }
+.app-titlebar-dots span:nth-child(3) { background: #2DCB42; }
+.app-titlebar-title { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin: 0 auto; }
+
+.topbar { height: 36px; background: var(--surface-1); border-bottom: 1px solid var(--border-lo); display: flex; align-items: center; padding: 0 12px; gap: 16px; }
+.repo-switcher { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 12px; color: var(--text-1); padding: 4px 8px; border-radius: 2px; cursor: pointer; }
+.repo-switcher:hover { background: var(--surface-2); }
+.repo-switcher .chev { color: var(--text-3); font-size: 10px; }
+.cmdk { flex: 1; max-width: 480px; background: var(--surface-0); border: 1px solid var(--border-lo); border-radius: 2px; height: 24px; display: flex; align-items: center; padding: 0 8px 0 28px; font-family: var(--font-sans); font-size: 12px; color: var(--text-3); position: relative; }
+.cmdk::before { content: '⌕'; position: absolute; left: 8px; color: var(--text-3); font-size: 12px; }
+.cmdk-kbd { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--text-3); padding: 1px 5px; border: 1px solid var(--border-lo); border-radius: 2px; }
+.cost-meter { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cost-meter .label { color: var(--text-3); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+.cost-meter .value { color: var(--accent); font-weight: 500; }
+.cost-meter .sep { color: var(--text-3); }
+.cost-meter .budget { color: var(--text-2); }
+.cost-meter .bar { width: 60px; height: 4px; background: var(--surface-2); border-radius: 0; overflow: hidden; }
+.cost-meter .bar-fill { height: 100%; width: 24%; background: var(--accent); }
+.icon-btn { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); cursor: pointer; border-radius: 2px; }
+.icon-btn:hover { background: var(--surface-2); color: var(--text-1); }
+
+/* MANIFEST STRIP */
+.manifest { height: 28px; background: var(--surface-0); border-bottom: 1px solid var(--border-lo); display: flex; align-items: center; padding: 0 12px; gap: 8px; overflow-x: auto; }
+.manifest-label { font-family: var(--font-sans); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; font-weight: 600; color: var(--text-3); margin-right: 4px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; background: var(--surface-1); border: 1px solid var(--border-lo); border-radius: 2px; font-family: var(--font-mono); font-size: 11px; color: var(--text-2); white-space: nowrap; cursor: pointer; flex-shrink: 0; }
+.pill:hover { border-color: var(--border-hi); }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+.pill .repo { color: var(--text-3); }
+.pill .name { color: var(--text-1); }
+.pill .meta { color: var(--text-3); }
+.dot.run { background: var(--status-run); box-shadow: 0 0 6px var(--status-run); }
+.dot.ok { background: var(--status-ok); }
+.dot.bad { background: var(--status-bad); }
+.dot.zzz { background: var(--status-zzz); }
+
+/* APP BODY */
+.app-body { display: grid; grid-template-columns: 240px 1fr 320px; height: 580px; }
+.sidebar { background: var(--surface-1); border-right: 1px solid var(--border-lo); overflow-y: auto; padding: 8px 0; }
+.sidebar-section { margin-bottom: 16px; }
+.sidebar-section-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 12px 4px 16px; }
+.sidebar-section-header .title { font-family: var(--font-sans); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; font-weight: 600; color: var(--text-3); }
+.sidebar-section-header .add { font-family: var(--font-mono); color: var(--text-3); font-size: 14px; cursor: pointer; line-height: 1; padding: 0 4px; }
+.sidebar-section-header .add:hover { color: var(--accent); }
+.channel { display: grid; grid-template-columns: 4px 12px 1fr auto; align-items: center; gap: 8px; padding: 0; height: 24px; cursor: pointer; position: relative; color: var(--text-2); font-family: var(--font-sans); font-size: 13px; }
+.channel:hover { background: var(--surface-2); color: var(--text-1); }
+.channel.is-selected { background: var(--surface-2); color: var(--text-1); }
+.channel .rail { height: 100%; background: transparent; }
+.channel.is-selected .rail { background: var(--accent); }
+.channel .dot-wrap { display: flex; align-items: center; justify-content: center; }
+.channel .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
+.channel .meta { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); padding-right: 12px; }
+.channel .pin { font-size: 10px; color: var(--text-3); padding-right: 12px; }
+
+/* MAIN */
+.main { display: flex; flex-direction: column; background: var(--surface-0); min-width: 0; }
+.tabs { display: flex; background: var(--surface-1); border-bottom: 1px solid var(--border-lo); height: 32px; }
+.tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; height: 100%; font-family: var(--font-mono); font-size: 11px; color: var(--text-2); border-right: 1px solid var(--border-lo); cursor: pointer; }
+.tab .dot { width: 6px; height: 6px; border-radius: 50%; }
+.tab.is-active { background: var(--surface-0); color: var(--text-1); position: relative; }
+.tab.is-active::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--accent); }
+.tab .close { color: var(--text-3); margin-left: 4px; cursor: pointer; }
+.tab .close:hover { color: var(--status-bad); }
+.tab-add { padding: 0 12px; color: var(--text-3); font-family: var(--font-mono); cursor: pointer; }
+.tab-add:hover { color: var(--accent); }
+
+.terminal-header { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--surface-0); border-bottom: 1px solid var(--border-lo); font-family: var(--font-sans); font-size: 11px; }
+.terminal-header .session-id { font-family: var(--font-mono); color: var(--text-1); font-size: 11px; }
+.terminal-header .badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 2px; font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.badge-run { background: rgba(245,165,36,.12); color: var(--status-run); border: 1px solid rgba(245,165,36,.3); }
+.badge-ok { background: rgba(63,185,80,.12); color: var(--status-ok); border: 1px solid rgba(63,185,80,.3); }
+.badge-bad { background: rgba(248,81,73,.12); color: var(--status-bad); border: 1px solid rgba(248,81,73,.3); }
+.badge-zzz { background: rgba(124,138,160,.12); color: var(--status-zzz); border: 1px solid rgba(124,138,160,.3); }
+.terminal-header .meta { font-family: var(--font-mono); color: var(--text-3); font-size: 10px; }
+.terminal-header .actions { margin-left: auto; display: flex; gap: 4px; }
+
+.terminal-body { flex: 1; padding: 12px 14px; font-family: var(--font-mono); font-size: 12px; line-height: 1.55; color: var(--text-1); overflow: auto; background: var(--surface-0); }
+.terminal-body .prompt { color: var(--accent); }
+.terminal-body .dim { color: var(--text-3); }
+.terminal-body .ok { color: var(--status-ok); }
+.terminal-body .warn { color: var(--status-run); }
+.terminal-body .err { color: var(--status-bad); }
+.terminal-body .cursor { display: inline-block; width: 7px; height: 13px; background: var(--text-1); animation: blink 1.2s steps(2) infinite; vertical-align: text-bottom; margin-left: 2px; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.weather { height: 4px; background: var(--surface-1); border-top: 1px solid var(--border-lo); position: relative; overflow: hidden; }
+.weather .bar { position: absolute; bottom: 0; width: 2px; background: var(--accent); }
+
+/* RIGHT PANEL */
+.detail { background: var(--surface-1); border-left: 1px solid var(--border-lo); padding: 16px; overflow-y: auto; }
+.detail h3 { font-family: var(--font-sans); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; font-weight: 600; color: var(--text-3); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border-lo); }
+.dl { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 20px; }
+.dl .row { display: flex; flex-direction: column; gap: 2px; }
+.dl dt { font-family: var(--font-sans); text-transform: uppercase; letter-spacing: 0.06em; font-size: 9px; color: var(--text-3); font-weight: 600; }
+.dl dd { font-family: var(--font-mono); font-size: 11px; color: var(--text-1); word-break: break-all; }
+.dl dd .badge { font-size: 10px; }
+
+/* === FONT SPECIMEN === */
+.specimen { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.specimen-card { background: var(--surface-1); border: 1px solid var(--border-lo); padding: 24px; border-radius: 2px; }
+.specimen-card .label { color: var(--text-3); font-family: var(--font-sans); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; font-weight: 600; margin-bottom: 16px; }
+.specimen-card .role { color: var(--text-2); font-size: 11px; font-family: var(--font-mono); margin-bottom: 8px; }
+.specimen-card .sample-xl { font-size: 40px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; margin-bottom: 4px; color: var(--text-1); }
+.specimen-card .sample-lg { font-size: 22px; font-weight: 500; line-height: 1.2; margin-bottom: 4px; color: var(--text-1); }
+.specimen-card .sample-md { font-size: 14px; line-height: 1.5; color: var(--text-2); margin-bottom: 4px; }
+.specimen-card .sample-sm { font-size: 11px; line-height: 1.4; color: var(--text-3); }
+.specimen-card.mono .sample-xl, .specimen-card.mono .sample-lg, .specimen-card.mono .sample-md, .specimen-card.mono .sample-sm { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.specimen-card .nums { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 16px; color: var(--text-1); margin-top: 12px; }
+.specimen-card .meta { color: var(--text-3); font-size: 10px; font-family: var(--font-mono); margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-lo); }
+
+/* === COLOR SWATCHES === */
+.swatch-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.swatch { border: 1px solid var(--border-lo); border-radius: 2px; overflow: hidden; }
+.swatch .chip { height: 64px; border-bottom: 1px solid var(--border-lo); }
+.swatch .info { padding: 10px 12px; background: var(--surface-1); }
+.swatch .info .name { font-family: var(--font-sans); font-size: 12px; color: var(--text-1); font-weight: 500; }
+.swatch .info .hex { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); }
+.swatch .info .role { font-family: var(--font-sans); font-size: 10px; color: var(--text-3); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* === COMPONENT GALLERY === */
+.comp-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+.comp-card { background: var(--surface-1); border: 1px solid var(--border-lo); padding: 20px; border-radius: 2px; }
+.comp-card-title { font-family: var(--font-sans); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; font-weight: 600; color: var(--text-3); margin-bottom: 12px; }
+.row-stack { display: flex; flex-direction: column; gap: 8px; }
+.row-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.btn { font-family: var(--font-sans); font-size: 12px; padding: 6px 12px; border-radius: 2px; cursor: pointer; border: 1px solid transparent; height: 28px; display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.btn-primary { background: var(--accent); color: #0C1014; border-color: var(--accent); }
+.btn-primary:hover { background: #7BCEEF; }
+.btn-secondary { background: var(--surface-2); color: var(--text-1); border-color: var(--border-lo); }
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+.btn-ghost { background: transparent; color: var(--text-2); }
+.btn-ghost:hover { background: var(--surface-2); color: var(--text-1); }
+.btn-danger { background: transparent; color: var(--status-bad); border-color: rgba(248,81,73,.3); }
+.btn-danger:hover { background: rgba(248,81,73,.12); }
+
+input[type='text'], textarea { font-family: var(--font-sans); font-size: 13px; background: var(--surface-0); border: 1px solid var(--border-lo); color: var(--text-1); padding: 6px 10px; border-radius: 2px; width: 100%; }
+input[type='text']:focus, textarea:focus { outline: none; border-color: var(--accent); }
+label.field { font-family: var(--font-sans); text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; font-weight: 600; color: var(--text-3); display: block; margin-bottom: 4px; }
+
+table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 11px; }
+th { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border-hi); font-family: var(--font-sans); text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; font-weight: 600; color: var(--text-3); }
+td { padding: 8px 10px; border-bottom: 1px solid var(--border-lo); color: var(--text-1); }
+td.dim { color: var(--text-3); }
+tbody tr:hover { background: var(--surface-2); }
+
+/* === SPACING SCALE === */
+.spacing-row { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.spacing-item { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.spacing-item .bar { background: var(--accent); height: 8px; }
+.spacing-item .label { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); }
+
+footer { color: var(--text-3); font-family: var(--font-mono); font-size: 11px; padding: 32px 0 8px; text-align: center; border-top: 1px solid var(--border-lo); margin-top: 56px; }
+
+</style>
+</head>
+<body>
+
+<div class="doc">
+
+  <!-- =================== HEADER =================== -->
+  <header class="doc-header">
+    <div>
+      <h1>Agent Sweet Home</h1>
+      <p class="sub">Design system preview · v0.1 · 2026-05-13</p>
+      <p class="thesis">// An anodized aluminum dispatch station for one operator coordinating a fleet of autonomous workers. Cold, weighted surfaces. Every light means something. The cost meter is the loudest object on screen. It assumes you are competent.</p>
+    </div>
+    <button class="theme-toggle" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'">Toggle theme</button>
+  </header>
+
+  <!-- =================== APP MOCKUP =================== -->
+  <section class="section">
+    <div class="section-label">01 · Full app mockup</div>
+    <h2>The harbormaster's view</h2>
+    <p class="lede">Left: per-repo channels. Top: manifest strip showing every active process across all repos. Right: collapsible detail panel. Center: split-tab terminal/run view. Cost meter ticks in the top bar. Status colors mean exactly one thing each.</p>
+
+    <div class="app-frame">
+      <div class="app-titlebar">
+        <div class="app-titlebar-dots"><span></span><span></span><span></span></div>
+        <div class="app-titlebar-title">Agent Sweet Home</div>
+      </div>
+
+      <div class="topbar">
+        <div class="repo-switcher">
+          <span class="mono">liyo1/agent-sweet-home</span>
+          <span class="chev">▾</span>
+        </div>
+        <div class="cmdk">
+          Search runs, sessions, issues…
+          <span class="cmdk-kbd">⌘K</span>
+        </div>
+        <div class="cost-meter">
+          <span class="label">Session</span>
+          <span class="value">$0.4732</span>
+          <span class="sep">/</span>
+          <span class="budget">$2.00</span>
+          <span class="bar"><span class="bar-fill"></span></span>
+        </div>
+        <div class="icon-btn" title="Settings">⚙</div>
+      </div>
+
+      <div class="manifest">
+        <span class="manifest-label">FLEET</span>
+        <span class="pill"><span class="dot run"></span><span class="repo">agent-sweet-home</span><span>·</span><span class="name">term-1747091200-a3f</span><span class="meta">4m12s</span></span>
+        <span class="pill"><span class="dot run"></span><span class="repo">claude-code</span><span>·</span><span class="name">run-x47fa</span><span class="meta">0m38s · $0.18</span></span>
+        <span class="pill"><span class="dot zzz"></span><span class="repo">workflow-engine</span><span>·</span><span class="name">term-1746998400</span><span class="meta">12m idle</span></span>
+        <span class="pill"><span class="dot bad"></span><span class="repo">docs-site</span><span>·</span><span class="name">run-z9a8</span><span class="meta">failed · 2m ago</span></span>
+        <span class="pill"><span class="dot ok"></span><span class="repo">design-system</span><span>·</span><span class="name">run-y2b1</span><span class="meta">$0.18 · ok</span></span>
+      </div>
+
+      <div class="app-body">
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+          <div class="sidebar-section">
+            <div class="sidebar-section-header"><span class="title">Home</span></div>
+            <div class="channel">
+              <div class="rail"></div>
+              <div class="dot-wrap"></div>
+              <div class="label">overview</div>
+              <div class="pin">📍</div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-section-header"><span class="title">Terminals</span><span class="add">+</span></div>
+            <div class="channel is-selected">
+              <div class="rail"></div>
+              <div class="dot-wrap"><span class="pill" style="background: transparent; border: none; padding: 0;"><span class="dot run"></span></span></div>
+              <div class="label">term-1747091200-a3f</div>
+              <div class="meta">4m12s</div>
+            </div>
+            <div class="channel">
+              <div class="rail"></div>
+              <div class="dot-wrap"><span class="dot zzz" style="width:6px;height:6px;border-radius:50%;display:inline-block;"></span></div>
+              <div class="label">term-1746998400-b7c</div>
+              <div class="meta">12m</div>
+            </div>
+            <div class="channel">
+              <div class="rail"></div>
+              <div class="dot-wrap"><span class="dot ok" style="width:6px;height:6px;border-radius:50%;display:inline-block;"></span></div>
+              <div class="label">term-1746990000-d1e</div>
+              <div class="meta">exit 0</div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-section-header"><span class="title">One-Shot Runs</span><span class="add">+</span></div>
+            <div class="channel">
+              <div class="rail"></div>
+              <div class="dot-wrap"><span class="dot run" style="width:6px;height:6px;border-radius:50%;display:inline-block;"></span></div>
+              <div class="label">run-x47fa</div>
+              <div class="meta">$0.18</div>
+            </div>
+            <div class="channel">
+              <div class="rail"></div>
+              <div class="dot-wrap"><span class="dot ok" style="width:6px;height:6px;border-radius:50%;display:inline-block;"></span></div>
+              <div class="label">run-y2b1</div>
+              <div class="meta">$0.18</div>
+            </div>
+            <div class="channel">
+              <div class="rail"></div>
+              <div class="dot-wrap"><span class="dot bad" style="width:6px;height:6px;border-radius:50%;display:inline-block;"></span></div>
+              <div class="label">run-z9a8</div>
+              <div class="meta">failed</div>
+            </div>
+            <div class="channel">
+              <div class="rail"></div>
+              <div class="dot-wrap"><span class="dot ok" style="width:6px;height:6px;border-radius:50%;display:inline-block;"></span></div>
+              <div class="label">run-w3c4</div>
+              <div class="meta">$0.04</div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-section-header"><span class="title">Cron</span><span class="add">+</span></div>
+            <div class="channel">
+              <div class="rail"></div>
+              <div class="dot-wrap"><span class="dot ok" style="width:6px;height:6px;border-radius:50%;display:inline-block;"></span></div>
+              <div class="label">nightly-sync</div>
+              <div class="meta">02:00</div>
+            </div>
+            <div class="channel">
+              <div class="rail"></div>
+              <div class="dot-wrap"><span class="dot ok" style="width:6px;height:6px;border-radius:50%;display:inline-block;"></span></div>
+              <div class="label">issue-triage</div>
+              <div class="meta">*/30</div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-section-header"><span class="title">Workflow</span></div>
+            <div class="channel">
+              <div class="rail"></div>
+              <div class="dot-wrap"><span class="dot ok" style="width:6px;height:6px;border-radius:50%;display:inline-block;"></span></div>
+              <div class="label">workflow.yaml</div>
+              <div class="meta">loaded</div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- MAIN -->
+        <main class="main">
+          <div class="tabs">
+            <div class="tab is-active"><span class="dot run"></span>term-1747091200-a3f<span class="close">×</span></div>
+            <div class="tab"><span class="dot run"></span>run-x47fa<span class="close">×</span></div>
+            <div class="tab-add">+</div>
+          </div>
+
+          <div class="terminal-header">
+            <span class="session-id">term-1747091200-a3f</span>
+            <span class="badge badge-run">● running</span>
+            <span class="meta">4m12s · idle 3s · cwd ~/Projects/agent-sweet-home</span>
+            <div class="actions">
+              <button class="btn btn-ghost">Resize</button>
+              <button class="btn btn-danger">× Kill</button>
+            </div>
+          </div>
+
+          <div class="terminal-body">
+<span class="dim">$</span> <span class="prompt">claude --dangerously-skip-permissions</span>
+<span class="dim">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span class="dim">Claude Code v1.4.2 · session a3f9e2b1</span>
+
+<span class="ok">●</span> Connected · agent-sweet-home · main · clean
+<span class="ok">●</span> Loaded workflow.yaml (3 patches, 1 quarantine rule)
+
+<span class="dim">› refactor the OneShotView to use the new RepoCounts type</span>
+
+<span class="warn">⠋</span> Reading src/components/OneShotView.tsx <span class="dim">(284 lines)</span>
+<span class="warn">⠙</span> Searching for RepoCounts usages <span class="dim">(7 files)</span>
+<span class="ok">✓</span> Edit src/components/OneShotView.tsx <span class="dim">+12 -8</span>
+<span class="ok">✓</span> Edit src/App.tsx <span class="dim">+3 -2</span>
+<span class="warn">⠹</span> Running pnpm test --filter OneShotView<span class="cursor"></span>
+          </div>
+
+          <div class="weather">
+            <span class="bar" style="left: 2%; height: 35%;"></span>
+            <span class="bar" style="left: 5%; height: 50%;"></span>
+            <span class="bar" style="left: 8%; height: 30%;"></span>
+            <span class="bar" style="left: 11%; height: 70%;"></span>
+            <span class="bar" style="left: 14%; height: 60%;"></span>
+            <span class="bar" style="left: 17%; height: 90%;"></span>
+            <span class="bar" style="left: 20%; height: 75%;"></span>
+            <span class="bar" style="left: 23%; height: 45%;"></span>
+            <span class="bar" style="left: 26%; height: 80%;"></span>
+            <span class="bar" style="left: 29%; height: 100%;"></span>
+            <span class="bar" style="left: 32%; height: 65%;"></span>
+            <span class="bar" style="left: 35%; height: 55%;"></span>
+            <span class="bar" style="left: 38%; height: 70%;"></span>
+            <span class="bar" style="left: 41%; height: 95%;"></span>
+            <span class="bar" style="left: 44%; height: 80%;"></span>
+            <span class="bar" style="left: 47%; height: 60%;"></span>
+            <span class="bar" style="left: 50%; height: 75%; background: var(--status-run);"></span>
+            <span class="bar" style="left: 53%; height: 40%;"></span>
+            <span class="bar" style="left: 56%; height: 85%;"></span>
+            <span class="bar" style="left: 59%; height: 100%;"></span>
+            <span class="bar" style="left: 62%; height: 70%;"></span>
+            <span class="bar" style="left: 65%; height: 60%;"></span>
+            <span class="bar" style="left: 68%; height: 90%;"></span>
+            <span class="bar" style="left: 71%; height: 50%;"></span>
+            <span class="bar" style="left: 74%; height: 80%;"></span>
+            <span class="bar" style="left: 77%; height: 65%;"></span>
+            <span class="bar" style="left: 80%; height: 95%;"></span>
+            <span class="bar" style="left: 83%; height: 75%;"></span>
+            <span class="bar" style="left: 86%; height: 55%;"></span>
+            <span class="bar" style="left: 89%; height: 80%;"></span>
+            <span class="bar" style="left: 92%; height: 100%;"></span>
+            <span class="bar" style="left: 95%; height: 70%;"></span>
+          </div>
+        </main>
+
+        <!-- DETAIL -->
+        <aside class="detail">
+          <h3>Session detail</h3>
+          <dl class="dl">
+            <div class="row"><dt>Session ID</dt><dd>term-1747091200-a3f</dd></div>
+            <div class="row"><dt>Status</dt><dd><span class="badge badge-run">● running</span></dd></div>
+            <div class="row"><dt>Started</dt><dd>14:53:20 · 4m12s ago</dd></div>
+            <div class="row"><dt>Last output</dt><dd>3s ago</dd></div>
+            <div class="row"><dt>CWD</dt><dd>~/Projects/agent-sweet-home</dd></div>
+            <div class="row"><dt>Branch</dt><dd>main · clean</dd></div>
+            <div class="row"><dt>Command</dt><dd>claude --dangerously-skip-permissions</dd></div>
+          </dl>
+
+          <h3>Repo · agent-sweet-home</h3>
+          <dl class="dl">
+            <div class="row"><dt>Default branch</dt><dd>main</dd></div>
+            <div class="row"><dt>Local branch</dt><dd>main · <span class="badge badge-ok">● clean</span></dd></div>
+            <div class="row"><dt>Open issues</dt><dd>7</dd></div>
+            <div class="row"><dt>Open PRs</dt><dd>2 · 1 draft</dd></div>
+            <div class="row"><dt>Last sync</dt><dd>2m ago</dd></div>
+          </dl>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== TYPOGRAPHY =================== -->
+  <section class="section">
+    <div class="section-label">02 · Typography</div>
+    <h2>Two faces, no more</h2>
+    <p class="lede">Plex Condensed packs density without compressing-Inter shame. Plex Mono pairs natively (same designer, same x-height, real personality). Numerics, IDs, paths, durations, costs, logs, terminals — all mono. Everything else — sans.</p>
+
+    <div class="specimen">
+      <div class="specimen-card">
+        <div class="label">Chrome · UI · Body</div>
+        <div class="role">IBM Plex Sans Condensed · sans-serif</div>
+        <div class="sample-xl">Agent Sweet Home</div>
+        <div class="sample-lg">The fleet is visible.</div>
+        <div class="sample-md">Body copy at 14px / 1.4 line-height. Used for issue titles, PR descriptions, settings labels, modal copy. Condensed gives 12% more density than Inter at the same x-height — useful when the sidebar carries 30 channels.</div>
+        <div class="sample-sm">UI LABEL · 11px tracked +0.08em uppercase · TERMINALS · ONE-SHOT RUNS · CRON</div>
+        <div class="meta">weights: 400 / 500 / 600 / 700 · open-source · Google Fonts</div>
+      </div>
+      <div class="specimen-card mono">
+        <div class="label">Numerics · IDs · Logs · Terminal</div>
+        <div class="role">IBM Plex Mono · monospace</div>
+        <div class="sample-xl">$0.4732</div>
+        <div class="sample-lg">term-1747091200-a3f9</div>
+        <div class="sample-md">~/Projects/agent-sweet-home · 4m12s · idle 3s · exit 0 · v0.1.4</div>
+        <div class="sample-sm">[14:53:20] ● claude --dangerously-skip-permissions · session a3f9e2b1</div>
+        <div class="meta">weights: 400 / 500 / 600 · tabular-nums locked · Google Fonts</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== COLOR =================== -->
+  <section class="section">
+    <div class="section-label">03 · Color</div>
+    <h2>Surfaces, signals, and the one chrome accent</h2>
+    <p class="lede">Five surface steps. Three text steps. Five reserved signal colors (each means exactly one thing). One non-signal chrome accent. That's it.</p>
+
+    <h3 class="section-label" style="margin-top: 24px;">Surfaces</h3>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip" style="background:#0C1014;"></div><div class="info"><div class="name">surface-0</div><div class="hex">#0C1014</div><div class="role">app base</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#141921;"></div><div class="info"><div class="name">surface-1</div><div class="hex">#141921</div><div class="role">panel · sidebar</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#1D2430;"></div><div class="info"><div class="name">surface-2</div><div class="hex">#1D2430</div><div class="role">raised · hover</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#2A3340;"></div><div class="info"><div class="name">border-lo</div><div class="hex">#2A3340</div><div class="role">divider</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#3D4A5C;"></div><div class="info"><div class="name">border-hi</div><div class="hex">#3D4A5C</div><div class="role">important edge</div></div></div>
+    </div>
+
+    <h3 class="section-label" style="margin-top: 24px;">Status signals · RESERVED · never chrome</h3>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip" style="background:#F5A524;"></div><div class="info"><div class="name">running</div><div class="hex">#F5A524</div><div class="role">amber · active</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#3FB950;"></div><div class="info"><div class="name">healthy</div><div class="hex">#3FB950</div><div class="role">completed · ok</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#F85149;"></div><div class="info"><div class="name">failed</div><div class="hex">#F85149</div><div class="role">error · killed</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#7C8AA0;"></div><div class="info"><div class="name">frozen</div><div class="hex">#7C8AA0</div><div class="role">idle · paused</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#FF6B35;"></div><div class="info"><div class="name">cost-burn</div><div class="hex">#FF6B35</div><div class="role">budget warning</div></div></div>
+    </div>
+
+    <h3 class="section-label" style="margin-top: 24px;">Chrome accent · non-signal</h3>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip" style="background:#5BC0EB;"></div><div class="info"><div class="name">harbor cyan</div><div class="hex">#5BC0EB</div><div class="role">focus · select · brand</div></div></div>
+    </div>
+  </section>
+
+  <!-- =================== COMPONENTS =================== -->
+  <section class="section">
+    <div class="section-label">04 · Component gallery</div>
+    <h2>Buttons, pills, inputs, tables</h2>
+    <p class="lede">Sharp corners. 2px max radius. No shadows. No gradients. The signal colors carry meaning; the chrome stays out of the way.</p>
+
+    <div class="comp-grid">
+      <div class="comp-card">
+        <div class="comp-card-title">Buttons</div>
+        <div class="row-stack">
+          <div class="row-inline">
+            <button class="btn btn-primary">Start run</button>
+            <button class="btn btn-secondary">Resize</button>
+            <button class="btn btn-ghost">Cancel</button>
+            <button class="btn btn-danger">× Kill</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="comp-card">
+        <div class="comp-card-title">Status badges</div>
+        <div class="row-inline">
+          <span class="badge badge-run">● running</span>
+          <span class="badge badge-ok">● completed</span>
+          <span class="badge badge-bad">× failed</span>
+          <span class="badge badge-zzz">○ frozen</span>
+        </div>
+      </div>
+
+      <div class="comp-card">
+        <div class="comp-card-title">Form fields</div>
+        <div class="row-stack">
+          <div>
+            <label class="field">Prompt</label>
+            <textarea rows="3" placeholder="refactor the OneShotView to use the new RepoCounts type"></textarea>
+          </div>
+          <div class="row-inline">
+            <div style="flex:1;">
+              <label class="field">Model</label>
+              <input type="text" value="claude-opus-4-7" />
+            </div>
+            <div style="flex:1;">
+              <label class="field">Budget USD</label>
+              <input type="text" value="2.00" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="comp-card">
+        <div class="comp-card-title">Run history table</div>
+        <table>
+          <thead><tr><th>ID</th><th>Prompt</th><th>Status</th><th style="text-align:right;">Cost</th><th style="text-align:right;">Duration</th></tr></thead>
+          <tbody>
+            <tr><td>run-x47fa</td><td>refactor OneShotView…</td><td><span class="badge badge-run">● run</span></td><td style="text-align:right;">$0.1832</td><td style="text-align:right;" class="dim">0m38s</td></tr>
+            <tr><td>run-y2b1</td><td>fix sidebar count badge</td><td><span class="badge badge-ok">● ok</span></td><td style="text-align:right;">$0.0421</td><td style="text-align:right;" class="dim">1m04s</td></tr>
+            <tr><td>run-z9a8</td><td>add cron tab placeholder</td><td><span class="badge badge-bad">× fail</span></td><td style="text-align:right;">$0.0090</td><td style="text-align:right;" class="dim">0m08s</td></tr>
+            <tr><td>run-w3c4</td><td>update README</td><td><span class="badge badge-ok">● ok</span></td><td style="text-align:right;">$0.0412</td><td style="text-align:right;" class="dim">0m51s</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== SPACING =================== -->
+  <section class="section">
+    <div class="section-label">05 · Spacing</div>
+    <h2>4px base · compact density</h2>
+    <p class="lede">Operator software. The user is here for hours. Tight is better than airy. The scale gives 9 steps; most chrome lives at 4 / 8 / 12.</p>
+
+    <div class="spacing-row">
+      <div class="spacing-item"><div class="bar" style="width: 2px;"></div><div class="label">2 · 2px</div></div>
+      <div class="spacing-item"><div class="bar" style="width: 4px;"></div><div class="label">xs · 4px</div></div>
+      <div class="spacing-item"><div class="bar" style="width: 6px;"></div><div class="label">6 · 6px</div></div>
+      <div class="spacing-item"><div class="bar" style="width: 8px;"></div><div class="label">sm · 8px</div></div>
+      <div class="spacing-item"><div class="bar" style="width: 12px;"></div><div class="label">md · 12px</div></div>
+      <div class="spacing-item"><div class="bar" style="width: 16px;"></div><div class="label">lg · 16px</div></div>
+      <div class="spacing-item"><div class="bar" style="width: 24px;"></div><div class="label">xl · 24px</div></div>
+      <div class="spacing-item"><div class="bar" style="width: 32px;"></div><div class="label">2xl · 32px</div></div>
+      <div class="spacing-item"><div class="bar" style="width: 48px;"></div><div class="label">3xl · 48px</div></div>
+    </div>
+  </section>
+
+  <!-- =================== FUTURE CONSIDERATIONS =================== -->
+  <section class="section">
+    <div class="section-label">06 · Future considerations · post-v1</div>
+    <h2>Three moves borrowed from "Agent Twin"</h2>
+    <p class="lede">A parallel prototype the user generated separately took a different overall direction (light cream + chat REPL + bubble radius — conflicts with harbormaster brief), but three of its moves transplant cleanly into ASH. Queued for v0.2 evaluation after the cockpit baseline ships. Not in v1.</p>
+
+    <!-- FC-1 -->
+    <div class="fc-card">
+      <div class="fc-head">
+        <span class="fc-tag">FC-1</span>
+        <h3>Repo card at the top of the sidebar</h3>
+      </div>
+      <p class="fc-why">Replaces the top-bar dropdown. Frees ~180px of top-bar space for Cmd+K and packs more information per glance: branch + ahead/behind + last commit + today's spend.</p>
+      <div class="fc-mock">
+        <div class="fc-repo-card">
+          <div class="fc-repo-top">
+            <span class="fc-repo-glyph">rb</span>
+            <div class="fc-repo-name">
+              <div class="mono" style="font-size: 12px; color: var(--text-1);">liyo1/agent-sweet-home</div>
+              <div style="font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px;">branch: main · 142 ahead</div>
+            </div>
+            <span class="icon-btn" style="font-size: 10px;">▾</span>
+          </div>
+          <div class="fc-repo-row"><span class="dot ok" style="width:6px;height:6px;border-radius:50%;display:inline-block;"></span><span class="mono" style="font-size: 11px; color: var(--text-2);">last commit 3 分鐘前</span></div>
+          <div class="fc-repo-row"><span class="mono" style="font-size: 11px; color: var(--text-2);">wire mapper to budget cap · lin.cw</span></div>
+          <div class="fc-repo-row" style="border-top: 1px solid var(--border-lo); padding-top: 6px; margin-top: 6px;">
+            <span style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3);">spent today</span>
+            <span class="mono" style="font-size: 11px; color: var(--accent); margin-left: auto;">$1.47 / $5.00</span>
+          </div>
+        </div>
+        <div class="fc-cost">~96px sidebar height · sidebar channel-list compresses · top-bar Cmd+K can grow</div>
+      </div>
+    </div>
+
+    <!-- FC-2 -->
+    <div class="fc-card">
+      <div class="fc-head">
+        <span class="fc-tag">FC-2</span>
+        <h3>Slash-command pills for One-Shot quick-launch</h3>
+      </div>
+      <p class="fc-why">Modal stays as the canonical "full custom run." Pills are the power-user shortcut layer — saved preset prompts launch with one click, no modal. Worth it once a user has 3+ prompts they repeat weekly.</p>
+      <div class="fc-mock">
+        <div class="fc-pill-row">
+          <span class="fc-slash-pill"><span class="mono">/review-pr</span><span class="fc-pill-desc">review current PR diff</span></span>
+          <span class="fc-slash-pill"><span class="mono">/fix-lint</span><span class="fc-pill-desc">run linter + autofix</span></span>
+          <span class="fc-slash-pill"><span class="mono">/update-readme</span><span class="fc-pill-desc">sync README to code</span></span>
+          <span class="fc-slash-pill"><span class="mono">/explain-diff</span><span class="fc-pill-desc">explain HEAD~1..HEAD</span></span>
+          <span class="fc-slash-pill fc-slash-pill-add"><span class="mono">+</span><span class="fc-pill-desc">new preset</span></span>
+        </div>
+        <div class="fc-cost">requires preset library persistence + settings UI to manage presets</div>
+      </div>
+    </div>
+
+    <!-- FC-3 -->
+    <div class="fc-card">
+      <div class="fc-head">
+        <span class="fc-tag">FC-3</span>
+        <h3>Cost meter expands to a stacked spend bar</h3>
+      </div>
+      <p class="fc-why">Hover or click the top-bar cost meter to expand it into a horizontal stacked bar broken down by source — each running terminal and run gets a colored segment proportional to its share. Turns the meter from "how much" into "where is my money going right now."</p>
+      <div class="fc-mock">
+        <div class="fc-spend-block">
+          <div class="fc-spend-head">
+            <span style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); font-weight: 600;">Spend · session</span>
+            <span class="mono" style="font-size: 13px; color: var(--text-1);">$0.4732 / $2.00 cap · 24%</span>
+          </div>
+          <div class="fc-spend-bar">
+            <span class="fc-spend-seg" style="width: 38%; background: var(--status-running);" title="term-1747091200-a3f · $0.1798"></span>
+            <span class="fc-spend-seg" style="width: 28%; background: var(--accent);" title="run-x47fa · $0.1325"></span>
+            <span class="fc-spend-seg" style="width: 19%; background: #9D77F2;" title="run-y2b1 · $0.0899"></span>
+            <span class="fc-spend-seg" style="width: 15%; background: var(--status-healthy);" title="run-w3c4 · $0.0710"></span>
+          </div>
+          <div class="fc-spend-legend">
+            <span class="fc-legend-item"><span class="fc-legend-dot" style="background: var(--status-running);"></span><span class="mono">term-1747091200-a3f</span><span class="mono fc-legend-amt">$0.1798</span></span>
+            <span class="fc-legend-item"><span class="fc-legend-dot" style="background: var(--accent);"></span><span class="mono">run-x47fa</span><span class="mono fc-legend-amt">$0.1325</span></span>
+            <span class="fc-legend-item"><span class="fc-legend-dot" style="background: #9D77F2;"></span><span class="mono">run-y2b1</span><span class="mono fc-legend-amt">$0.0899</span></span>
+            <span class="fc-legend-item"><span class="fc-legend-dot" style="background: var(--status-healthy);"></span><span class="mono">run-w3c4</span><span class="mono fc-legend-amt">$0.0710</span></span>
+          </div>
+        </div>
+        <div class="fc-cost">requires backend to attribute USD-per-segment in real time, not just total</div>
+      </div>
+    </div>
+  </section>
+
+  <style>
+    .fc-card { background: var(--surface-1); border: 1px solid var(--border-lo); padding: 20px; border-radius: 2px; margin-bottom: 16px; }
+    .fc-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .fc-tag { font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; background: var(--surface-2); border: 1px solid var(--border-hi); color: var(--accent); border-radius: 2px; letter-spacing: 0.04em; }
+    .fc-head h3 { font-family: var(--font-sans); font-size: 14px; font-weight: 600; color: var(--text-1); }
+    .fc-why { color: var(--text-2); font-size: 12px; max-width: 720px; margin-bottom: 16px; line-height: 1.55; }
+    .fc-mock { background: var(--surface-0); border: 1px solid var(--border-lo); padding: 16px; border-radius: 2px; }
+    .fc-cost { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-lo); }
+
+    .fc-repo-card { background: var(--surface-1); border: 1px solid var(--border-lo); padding: 10px 12px; border-radius: 2px; max-width: 260px; }
+    .fc-repo-top { display: flex; align-items: flex-start; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border-lo); }
+    .fc-repo-glyph { width: 28px; height: 28px; background: var(--surface-2); border: 1px solid var(--border-hi); border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11px; color: var(--accent); font-weight: 600; flex-shrink: 0; }
+    .fc-repo-name { flex: 1; min-width: 0; }
+    .fc-repo-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+
+    .fc-pill-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px; background: var(--surface-1); border: 1px solid var(--border-lo); border-radius: 2px; }
+    .fc-slash-pill { display: inline-flex; flex-direction: column; gap: 2px; padding: 6px 10px; background: var(--surface-0); border: 1px solid var(--border-lo); border-radius: 2px; cursor: pointer; min-width: 120px; }
+    .fc-slash-pill:hover { border-color: var(--accent); }
+    .fc-slash-pill .mono { font-size: 12px; color: var(--accent); }
+    .fc-pill-desc { font-family: var(--font-sans); font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+    .fc-slash-pill-add { border-style: dashed; }
+    .fc-slash-pill-add .mono { color: var(--text-3); text-align: center; font-size: 14px; }
+
+    .fc-spend-block { max-width: 560px; }
+    .fc-spend-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+    .fc-spend-bar { display: flex; height: 10px; background: var(--surface-2); border: 1px solid var(--border-lo); border-radius: 2px; overflow: hidden; }
+    .fc-spend-seg { display: block; height: 100%; border-right: 1px solid var(--surface-0); }
+    .fc-spend-seg:last-child { border-right: none; }
+    .fc-spend-legend { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 16px; margin-top: 12px; }
+    .fc-legend-item { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-2); }
+    .fc-legend-dot { width: 8px; height: 8px; flex-shrink: 0; }
+    .fc-legend-amt { color: var(--text-1); margin-left: auto; }
+  </style>
+
+  <footer>
+    // generated by /design-consultation · IBM Plex Sans Condensed + IBM Plex Mono · harbor cyan #5BC0EB · FC-1/2/3 deferred to v0.2
+  </footer>
+
+</div>
+
+</body>
+</html>
