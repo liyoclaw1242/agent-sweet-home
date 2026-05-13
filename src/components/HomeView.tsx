@@ -287,12 +287,16 @@ export default function HomeView({ repo }: Props) {
       </section>
 
       {/* ── Blocking Graph ── */}
-      {blocking.length > 0 && (
-        <section className="blocking-section">
-          <h3 className="dispatch-log-title">
-            Blocked Issues
+      <section className="blocking-section">
+        <h3 className="dispatch-log-title">
+          Blocked Issues
+          {blocking.length > 0 && (
             <span className="dispatch-log-count">{blocking.length}</span>
-          </h3>
+          )}
+        </h3>
+        {blocking.length === 0 ? (
+          <p className="empty">No blocked issues.</p>
+        ) : (
           <ul className="blocking-list">
             {blocking.map((item) => {
               const num = item.issueId.split("#")[1] ?? item.issueId;
@@ -315,8 +319,8 @@ export default function HomeView({ repo }: Props) {
               );
             })}
           </ul>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* ── Dispatch Log ── */}
       <section className="dispatch-log-section">
