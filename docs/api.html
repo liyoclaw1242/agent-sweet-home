@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>agent-sweet-home · HTTP API</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" />
+<style>
+:root {
+  --bg:      #0C1014;
+  --s1:      #141921;
+  --s2:      #1D2430;
+  --blo:     #2A3340;
+  --bhi:     #3D4A5C;
+  --t1:      #E8EAED;
+  --t2:      #A7B0BC;
+  --t3:      #6B7785;
+  --ok:      #3FB950;
+  --fail:    #F85149;
+  --run:     #F5A524;
+  --accent:  #5BC0EB;
+  --method-get:    #3FB950;
+  --method-post:   #5BC0EB;
+  --method-delete: #F85149;
+  --font-sans: 'IBM Plex Sans Condensed', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg); color: var(--t1);
+  line-height: 1.6; padding: 40px 20px 80px;
+}
+.wrap { max-width: 900px; margin: 0 auto; }
+
+h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+h2 {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.12em; color: var(--t3);
+  margin: 48px 0 14px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--blo);
+}
+p { color: var(--t2); font-size: 13px; line-height: 1.65; }
+code {
+  font-family: var(--font-mono); font-size: 11px;
+  background: var(--s2); padding: 1px 6px;
+  border: 1px solid var(--blo); border-radius: 2px; color: var(--t2);
+}
+pre {
+  font-family: var(--font-mono); font-size: 11px;
+  background: var(--bg); border: 1px solid var(--blo);
+  padding: 12px 14px; overflow-x: auto; color: var(--t2);
+  line-height: 1.6;
+}
+
+/* Hero */
+.hero { padding: 28px 0 36px; border-bottom: 1px solid var(--blo); margin-bottom: 8px; }
+.eyebrow {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent); margin-bottom: 10px;
+}
+.tagline { font-size: 13px; color: var(--t2); margin-top: 8px; max-width: 560px; }
+
+/* Auth info box */
+.auth-box {
+  margin-top: 20px; padding: 14px 16px;
+  background: var(--s1); border: 1px solid var(--blo);
+  border-left: 2px solid var(--run);
+  font-size: 12px; color: var(--t2);
+}
+.auth-box-title {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--run);
+  margin-bottom: 6px;
+}
+.auth-box ul { padding-left: 16px; margin-top: 4px; }
+.auth-box li { margin-bottom: 3px; }
+
+/* Method badge */
+.method {
+  display: inline-flex; align-items: center;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  padding: 2px 8px; border-radius: 2px; border: 1px solid;
+  white-space: nowrap; min-width: 52px; justify-content: center;
+}
+.GET    { color: var(--method-get);    border-color: rgba(63,185,80,.4);   background: rgba(63,185,80,.08); }
+.POST   { color: var(--method-post);   border-color: rgba(91,192,235,.4);  background: rgba(91,192,235,.08); }
+.DELETE { color: var(--method-delete); border-color: rgba(248,81,73,.4);   background: rgba(248,81,73,.08); }
+
+/* Route card */
+.route {
+  background: var(--s1); border: 1px solid var(--blo);
+  margin-bottom: 10px; overflow: hidden;
+}
+.route-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; cursor: pointer;
+  border-bottom: 1px solid transparent;
+  transition: background 120ms;
+  flex-wrap: wrap;
+}
+.route-head:hover { background: var(--s2); }
+.route[open] .route-head { border-bottom-color: var(--blo); background: var(--s2); }
+.route-path {
+  font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+  color: var(--t1); flex: 1;
+}
+.route-path .param { color: var(--accent); }
+.route-desc { font-size: 12px; color: var(--t3); }
+.no-auth {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ok); border: 1px solid rgba(63,185,80,.35);
+  background: rgba(63,185,80,.07); padding: 1px 6px; border-radius: 2px;
+}
+.auth-req {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--t3); border: 1px solid var(--blo);
+  padding: 1px 6px; border-radius: 2px;
+}
+
+/* Route body */
+.route-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+
+.field-group { display: flex; flex-direction: column; gap: 4px; }
+.field-group-label {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--t3);
+  margin-bottom: 2px;
+}
+.params-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.params-table th {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em; color: var(--t3);
+  padding: 6px 10px; border-bottom: 1px solid var(--blo);
+  background: var(--s2); text-align: left;
+}
+.params-table td { padding: 7px 10px; border-bottom: 1px solid var(--blo); color: var(--t2); vertical-align: top; }
+.params-table tr:last-child td { border-bottom: none; }
+.params-table .pname { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+.params-table .ptype { font-family: var(--font-mono); font-size: 10px; color: var(--t3); }
+.params-table .popt  { font-family: var(--font-mono); font-size: 9px; color: var(--t3); font-style: italic; }
+.params-table .preq  { font-family: var(--font-mono); font-size: 9px; color: var(--run); }
+
+.status-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.status-item { font-family: var(--font-mono); font-size: 11px; color: var(--t2); }
+.s200 { color: var(--ok); }
+.s201 { color: var(--ok); }
+.s202 { color: var(--run); }
+.s204 { color: var(--ok); }
+.s400 { color: var(--fail); }
+.s401 { color: var(--fail); }
+.s404 { color: var(--run); }
+.s503 { color: var(--fail); }
+
+.note {
+  font-size: 11px; color: var(--t3); line-height: 1.5;
+  padding: 8px 10px; background: var(--s2); border-left: 2px solid var(--blo);
+}
+
+/* Footer */
+.footer {
+  margin-top: 60px; padding: 20px 0;
+  border-top: 1px solid var(--blo);
+  font-size: 11px; color: var(--t3); text-align: center;
+}
+
+details summary { list-style: none; }
+details summary::-webkit-details-marker { display: none; }
+details.route { }
+details.route > summary { display: block; }
+
+@media (max-width: 700px) {
+  body { padding: 24px 14px 60px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">agent-sweet-home · localhost HTTP API</div>
+  <h1>HTTP API Reference</h1>
+  <p class="tagline">
+    App 啟動時在 <code>127.0.0.1:&lt;random-port&gt;</code> 開 axum server，
+    供外部 CLI / agent / workflow engine 呼叫。
+    Port 和 Bearer token 寫在 <code>&lt;app_data_dir&gt;/server.json</code>。
+  </p>
+
+  <div class="auth-box">
+    <div class="auth-box-title">Auth</div>
+    <ul>
+      <li>除 <code>GET /health</code> 外，所有端點需帶 <code>Authorization: Bearer &lt;token&gt;</code></li>
+      <li>Token 在 <code>server.json</code> 的 <code>token</code> 欄位；每次 App 啟動重新生成</li>
+      <li>Port 在 <code>server.json</code> 的 <code>port</code> 欄位；OS 隨機分配</li>
+      <li>Token 缺失或錯誤 → <code>401 Unauthorized</code></li>
+    </ul>
+    <div style="margin-top: 10px;">
+      <pre style="margin: 0;">curl http://127.0.0.1:$(cat ~/Library/Application\ Support/agent-sweet-home/server.json | jq .port)/health</pre>
+    </div>
+  </div>
+</header>
+
+<!-- ========================================================== SYSTEM -->
+<h2>System</h2>
+
+<details class="route" open>
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/health</span>
+    <span class="no-auth">no auth</span>
+    <span class="route-desc">Liveness check</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Response</div>
+      <pre>200 OK  →  "ok"</pre>
+    </div>
+  </div>
+</details>
+
+<!-- =========================================================== REPOS -->
+<h2>Repos</h2>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/repos</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">List all cached GitHub repos</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Response 200 — <code>Repo[]</code></div>
+      <pre>[
+  {
+    "id": 1,
+    "name": "my-repo",
+    "fullName": "org/my-repo",
+    "description": "...",
+    "htmlUrl": "https://github.com/org/my-repo",
+    "private": false,
+    "defaultBranch": "main",
+    "stargazersCount": 0,
+    "language": "TypeScript",
+    "updatedAt": "2026-05-14T00:00:00Z"
+  }
+]</pre>
+    </div>
+  </div>
+</details>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/repos/<span class="param">{name}</span></span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">Repo detail with issues, PRs and local git state</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Path params</div>
+      <table class="params-table">
+        <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="pname">name</td><td class="ptype">string</td><td>Repo short name (not full name), e.g. <code>my-repo</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="field-group">
+      <div class="field-group-label">Response 200 — <code>RepoDetail</code></div>
+      <pre>{
+  "repo": { ...Repo },
+  "issues": [{ "id": 1, "number": 42, "title": "...", "htmlUrl": "...", "labels": [...] }],
+  "prs":    [{ "id": 2, "number": 7,  "title": "...", "htmlUrl": "...", "draft": false }],
+  "local": {
+    "repoPath": "/Users/you/Projects/my-repo",
+    "exists": true,
+    "isGitRepo": true,
+    "currentBranch": "main",
+    "isClean": true,
+    "dirtyFiles": 0,
+    "error": null
+  }
+}</pre>
+    </div>
+    <div class="status-list">
+      <span class="status-item s200">200 OK</span>
+      <span class="status-item s404">404 Not Found — repo not in cache</span>
+    </div>
+  </div>
+</details>
+
+<!-- ======================================================== SESSIONS -->
+<h2>Sessions (Persistent PTY)</h2>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/sessions</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">List active PTY sessions (in-memory; cleared on restart)</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Query params</div>
+      <table class="params-table">
+        <thead><tr><th>Param</th><th>Type</th><th></th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="pname">repo</td><td class="ptype">string</td><td class="popt">optional</td><td>Filter by repo short name</td></tr>
+          <tr><td class="pname">repoId</td><td class="ptype">integer</td><td class="popt">optional</td><td>Filter by repo DB id</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="field-group">
+      <div class="field-group-label">Response 200 — <code>SessionInfo[]</code></div>
+      <pre>[
+  {
+    "id": "my-repo-1715000000-ab12cd34",
+    "repoName": "my-repo",
+    "repoId": 1,
+    "exitCode": null,
+    "frozen": false,
+    "uptimeSecs": 142,
+    "lastOutputAt": 1715000142
+  }
+]</pre>
+    </div>
+    <div class="note">Sessions are in-memory only. App restart clears all sessions.</div>
+  </div>
+</details>
+
+<!-- ======================================================= ONE-SHOT -->
+<h2>One-Shot Runs</h2>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/one-shot</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">List runs (SQLite-persisted)</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Query params</div>
+      <table class="params-table">
+        <thead><tr><th>Param</th><th>Type</th><th></th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="pname">repo</td><td class="ptype">string</td><td class="popt">optional</td><td>Filter by repo short name</td></tr>
+          <tr><td class="pname">repoId</td><td class="ptype">integer</td><td class="popt">optional</td><td>Filter by repo DB id</td></tr>
+          <tr><td class="pname">status</td><td class="ptype">string</td><td class="popt">optional</td><td><code>running</code> | <code>completed</code> | <code>failed</code> | <code>killed</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="field-group">
+      <div class="field-group-label">Response 200 — <code>RunInfo[]</code></div>
+      <pre>[
+  {
+    "id": "my-repo-1715000000-ab12cd34",
+    "repoId": 1,
+    "repoName": "my-repo",
+    "cwd": "/Users/you/Projects/my-repo",
+    "prompt": "Implement feature X",
+    "argv": ["claude", "-p", "--output-format", "stream-json", ...],
+    "status": "completed",
+    "startedAt": 1715000000,
+    "endedAt": 1715000120,
+    "exitCode": 0,
+    "totalCostUsd": 0.0234,
+    "outputFormat": "stream-json"
+  }
+]</pre>
+    </div>
+  </div>
+</details>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method POST">POST</span>
+    <span class="route-path">/one-shot</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">Start a new claude -p run</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Request body — <code>RunArgs</code> (JSON)</div>
+      <table class="params-table">
+        <thead><tr><th>Field</th><th>Type</th><th></th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="pname">repoId</td><td class="ptype">integer</td><td class="preq">required</td><td>DB repo id</td></tr>
+          <tr><td class="pname">repoName</td><td class="ptype">string</td><td class="preq">required</td><td>Repo short name</td></tr>
+          <tr><td class="pname">cwd</td><td class="ptype">string</td><td class="preq">required</td><td>Working directory for the spawn</td></tr>
+          <tr><td class="pname">prompt</td><td class="ptype">string</td><td class="preq">required</td><td>Prompt passed to <code>claude -p</code></td></tr>
+          <tr><td class="pname">model</td><td class="ptype">string</td><td class="popt">optional</td><td>Model override, e.g. <code>claude-opus-4-7</code></td></tr>
+          <tr><td class="pname">outputFormat</td><td class="ptype">string</td><td class="popt">optional</td><td><code>stream-json</code> (default) | <code>json</code> | <code>text</code></td></tr>
+          <tr><td class="pname">skipPermissions</td><td class="ptype">boolean</td><td class="popt">optional</td><td><code>--dangerously-skip-permissions</code></td></tr>
+          <tr><td class="pname">systemPrompt</td><td class="ptype">string</td><td class="popt">optional</td><td>Full system prompt override</td></tr>
+          <tr><td class="pname">appendSystemPrompt</td><td class="ptype">string</td><td class="popt">optional</td><td>Appended to default system prompt</td></tr>
+          <tr><td class="pname">allowedTools</td><td class="ptype">string[]</td><td class="popt">optional</td><td>Tool whitelist, e.g. <code>["Bash", "Read", "Edit"]</code></td></tr>
+          <tr><td class="pname">disallowedTools</td><td class="ptype">string[]</td><td class="popt">optional</td><td>Tool blacklist</td></tr>
+          <tr><td class="pname">maxBudgetUsd</td><td class="ptype">number</td><td class="popt">optional</td><td>Hard spend cap in USD</td></tr>
+          <tr><td class="pname">addDir</td><td class="ptype">string[]</td><td class="popt">optional</td><td>Extra directories added to context (<code>--add-dir</code>)</td></tr>
+          <tr><td class="pname">name</td><td class="ptype">string</td><td class="popt">optional</td><td>Display name / <code>--name</code> flag; workflow engine sets <code>{role}-{mode}-issue{N}</code></td></tr>
+          <tr><td class="pname">mcpConfig</td><td class="ptype">string[]</td><td class="popt">optional</td><td>MCP config file paths</td></tr>
+          <tr><td class="pname">resume</td><td class="ptype">string</td><td class="popt">optional</td><td>Session UUID to resume</td></tr>
+          <tr><td class="pname">continueLast</td><td class="ptype">boolean</td><td class="popt">optional</td><td><code>--continue</code> flag</td></tr>
+          <tr><td class="pname">extraArgs</td><td class="ptype">string[]</td><td class="popt">optional</td><td>Raw extra flags</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="field-group">
+      <div class="field-group-label">Response</div>
+      <pre>201 Created  →  RunInfo (same shape as GET /one-shot list item)</pre>
+    </div>
+    <div class="status-list">
+      <span class="status-item s200">200 OK</span>
+      <span class="status-item s400">400 Bad Request — cwd missing or spawn failed</span>
+      <span class="status-item s503">503 Service Unavailable — app_handle not ready</span>
+    </div>
+  </div>
+</details>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/one-shot/<span class="param">{id}</span></span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">Get single run metadata</span>
+  </summary>
+  <div class="route-body">
+    <div class="status-list">
+      <span class="status-item s200">200 OK → RunInfo</span>
+      <span class="status-item s404">404 Not Found</span>
+    </div>
+  </div>
+</details>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method DELETE">DELETE</span>
+    <span class="route-path">/one-shot/<span class="param">{id}</span></span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">Kill (if running) or delete (if finished)</span>
+  </summary>
+  <div class="route-body">
+    <div class="status-list">
+      <span class="status-item s204">204 No Content — deleted</span>
+      <span class="status-item s202">202 Accepted — kill signal sent (was running)</span>
+      <span class="status-item s404">404 Not Found</span>
+    </div>
+    <div class="note">Deleting a finished run cascades to its log lines.</div>
+  </div>
+</details>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/one-shot/<span class="param">{id}</span>/log</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">Stream log lines (incremental polling)</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Query params</div>
+      <table class="params-table">
+        <thead><tr><th>Param</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="pname">since</td><td class="ptype">integer</td><td>-1</td><td>Return lines with <code>seq &gt; since</code>. Pass last received seq for incremental polling.</td></tr>
+          <tr><td class="pname">limit</td><td class="ptype">integer</td><td>1000</td><td>Max lines to return</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="field-group">
+      <div class="field-group-label">Response 200 — <code>LogLine[]</code></div>
+      <pre>[
+  {
+    "runId": "my-repo-1715000000-ab12cd34",
+    "seq": 0,
+    "ts": 1715000001,
+    "stream": "stdout",
+    "text": "{\"type\":\"assistant\",\"message\":{...}}"
+  },
+  {
+    "runId": "my-repo-1715000000-ab12cd34",
+    "seq": 1,
+    "ts": 1715000002,
+    "stream": "stderr",
+    "text": "Loaded MCP server..."
+  }
+]</pre>
+    </div>
+    <div class="note">For <code>outputFormat: stream-json</code>, stdout lines are newline-delimited JSON (Claude stream events). Poll with <code>since=&lt;last_seq&gt;</code> to receive incremental updates.</div>
+  </div>
+</details>
+
+<!-- ======================================================= WORKFLOW -->
+<h2>Workflow</h2>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/workflow</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">Current workflow engine status</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Response 200</div>
+      <pre>{
+  "path": "/Users/you/Projects/agent-team/agent-team.workflow.yaml",
+  "exists": true,
+  "loaded": true,
+  "error": null
+}</pre>
+    </div>
+  </div>
+</details>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method POST">POST</span>
+    <span class="route-path">/workflow/path</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">Persist a new workflow YAML path (requires app restart)</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Request body</div>
+      <pre>{ "path": "/absolute/path/to/workflow.yaml" }</pre>
+    </div>
+    <div class="field-group">
+      <div class="field-group-label">Response 200</div>
+      <pre>{
+  "ok": true,
+  "path": "/absolute/path/to/workflow.yaml",
+  "note": "Restart the app for the new workflow path to take effect."
+}</pre>
+    </div>
+  </div>
+</details>
+
+<!-- ============================================================ GRAPH -->
+<h2>Graph / Digital Twin</h2>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/graph/state</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">All runs with event counts, agent label and issue link</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Response 200 — <code>GraphState</code></div>
+      <pre>{
+  "runs": [
+    {
+      "runId": "my-repo-1715000000-ab12cd34",
+      "repoName": "my-repo",
+      "status": "completed",
+      "startedAt": 1715000000,
+      "endedAt": 1715000120,
+      "totalCostUsd": 0.0234,
+      "eventCount": 48,
+      "toolCallCount": 12,
+      "agentLabel": "worker",   // derived from dispatch_log or argv --name
+      "issueNumber": 7          // null for manual runs
+    }
+  ]
+}</pre>
+    </div>
+  </div>
+</details>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/graph/runs/<span class="param">{id}</span>/decisions</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">Structured events for a run (call chain)</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Response 200 — <code>RunEvent[]</code></div>
+      <pre>[
+  {
+    "id": 1,
+    "runId": "my-repo-1715000000-ab12cd34",
+    "seq": 0,
+    "ts": 1715000001,
+    "eventType": "tool_use",    // "thinking" | "tool_use" | "tool_result" | "result"
+    "toolName": "Bash",
+    "toolUseId": "toolu_01...",
+    "inputJson": "{\"command\": \"ls -la\"}",
+    "outputJson": null,
+    "thinking": null,
+    "isError": false
+  }
+]</pre>
+    </div>
+    <div class="note">Parsed lazily from stream-json log on first request. Historical runs are supported.</div>
+  </div>
+</details>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/graph/issues/<span class="param">{n}</span>/why</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">Dispatch decision history for an issue</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Query params</div>
+      <table class="params-table">
+        <thead><tr><th>Param</th><th>Type</th><th></th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="pname">repo</td><td class="ptype">string</td><td class="preq">required</td><td>Full repo name, e.g. <code>org/repo</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="field-group">
+      <div class="field-group-label">Response 200 — <code>DispatchEntry[]</code></div>
+      <pre>[
+  {
+    "id": 1,
+    "issueNumber": 7,
+    "repoFullName": "org/repo",
+    "matchedAt": 1715000000,
+    "ruleIndex": 6,             // 0-based index of matched dispatch rule; null = no match
+    "directiveType": "spawn_fresh",
+    "directiveJson": "{\"directive\":\"spawn_fresh\",\"role\":\"worker\",\"reason\":\"\"}",
+    "runId": "my-repo-1715000000-ab12cd34"
+  }
+]</pre>
+    </div>
+    <div class="note">Answers "why was this issue dispatched (or not)?" — full audit trail per issue.</div>
+  </div>
+</details>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/graph/issues/<span class="param">{n}</span>/trace</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">Full causal trace: issue → dispatches → runs → events</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Query params</div>
+      <table class="params-table">
+        <thead><tr><th>Param</th><th>Type</th><th></th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="pname">repo</td><td class="ptype">string</td><td class="preq">required</td><td>Full repo name, e.g. <code>org/repo</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="field-group">
+      <div class="field-group-label">Response 200 — <code>IssueTrace</code></div>
+      <pre>{
+  "issueNumber": 7,
+  "repoFullName": "org/repo",
+  "dispatches": [
+    {
+      "dispatch": { ...DispatchEntry },
+      "run": { ...RunInfo },          // null if no spawn
+      "decisions": [ ...RunEvent[] ]  // structured events for that run
+    }
+  ]
+}</pre>
+    </div>
+  </div>
+</details>
+
+<details class="route">
+  <summary class="route-head">
+    <span class="method GET">GET</span>
+    <span class="route-path">/graph/blocking</span>
+    <span class="auth-req">bearer</span>
+    <span class="route-desc">All issues blocked by unresolved deps</span>
+  </summary>
+  <div class="route-body">
+    <div class="field-group">
+      <div class="field-group-label">Response 200 — <code>BlockingItem[]</code></div>
+      <pre>[
+  {
+    "issueId": "org/repo#7",
+    "title": "Implement feature B",
+    "blockedBy": [
+      { "issueId": "org/repo#5", "title": "Scaffold" }
+    ]
+  }
+]</pre>
+    </div>
+  </div>
+</details>
+
+<footer class="footer">
+  <p>agent-sweet-home · axum HTTP server · port written to <code>&lt;app_data_dir&gt;/server.json</code> on startup</p>
+</footer>
+
+</div>
+</body>
+</html>
