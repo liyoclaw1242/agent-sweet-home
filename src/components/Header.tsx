@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Repo } from "./Sidebar";
+import DocsModal from "./DocsModal";
 import "./Header.css";
 
 interface Props {
@@ -22,6 +23,7 @@ export default function Header({
   onOpenSettings,
 }: Props) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -113,6 +115,22 @@ export default function Header({
         </div>
       </div>
 
+      {/* Docs */}
+      <button
+        type="button"
+        className="topbar-icon-btn"
+        onClick={() => setDocsOpen(true)}
+        aria-label="API reference"
+        title="API reference"
+      >
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden>
+          <rect x="2.5" y="1.5" width="9" height="12" rx="0" stroke="currentColor" strokeWidth="1.2"/>
+          <line x1="5" y1="5.5" x2="10" y2="5.5" stroke="currentColor" strokeWidth="1"/>
+          <line x1="5" y1="7.8" x2="10" y2="7.8" stroke="currentColor" strokeWidth="1"/>
+          <line x1="5" y1="10.1" x2="8"  y2="10.1" stroke="currentColor" strokeWidth="1"/>
+        </svg>
+      </button>
+
       {/* Settings */}
       <button
         type="button"
@@ -123,6 +141,8 @@ export default function Header({
       >
         ⚙
       </button>
+
+      {docsOpen && <DocsModal onClose={() => setDocsOpen(false)} />}
     </header>
   );
 }
